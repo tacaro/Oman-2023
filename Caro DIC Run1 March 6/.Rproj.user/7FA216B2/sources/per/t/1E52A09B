@@ -1,0 +1,24 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1678998776780.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "2499388653",
+    "id" : "1E52A09B",
+    "lastKnownWriteTime" : 1678998773,
+    "last_content_update" : 1678998773,
+    "path" : "C:/Users/CUBESSIL/Downloads/190208_OM19_1ml_DIC.Rmd",
+    "project_path" : null,
+    "properties" : {
+        "chunk_output_type" : "inline"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 7,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_markdown"
+}

@@ -1,0 +1,328 @@
+---
+title: "04_cline_processing"
+author: "Tristan Caro"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+# Setup
+
+```{r}
+# Clear the environment
+rm(list=ls())
+```
+
+### Load Libraries
+
+```{r}
+library(tidyverse)
+library(plater)
+library(ggpmisc)
+```
+
+### Load plates with plater package
+
+```{r}
+plate_list <- list.files(path = "data/cline_assays/2023-05-29-Clines/csvs")
+plate_list2 <- str_c("data/cline_assays/2023-05-29-Clines/csvs/", plate_list)
+
+plate_names <- plate_list |> str_remove(".csv") |> str_to_lower()
+
+data <- read_plates(
+  files = plate_list2,
+  plate_names = plate_names,
+  well_ids_column = "Wells"
+) |> 
+  rename(plate_id = Plate) |> 
+  mutate(Plate = case_when(
+    str_detect(plate_id, "platea") ~ "platea",
+    str_detect(plate_id, "plateb") ~ "plateb",
+    str_detect(plate_id, "platec") ~ "platec"
+  ))
+```
+
+### Load plate maps
+
+```{r}
+maps <- read_plates(
+  files = c("data/cline_assays/2023-05-29-Clines/maps/mapPlateA.csv",
+            "data/cline_assays/2023-05-29-Clines/maps/mapPlateB.csv",
+            "data/cline_assays/2023-05-29-Clines/maps/mapPlateC.csv")
+) |> 
+  mutate(
+    Plate = str_remove(Plate, pattern = "map") |> str_to_lower(),
+    sample_id = case_when(
+      !is.na(`PLATE A`) ~ `PLATE A`,
+      !is.na(`PLATE B`) ~ `PLATE B`,
+      !is.na(`PLATE C`) ~ `PLATE C`
+    )
+  ) |> 
+  select(c(Plate, Wells, sample_id))
+```
+
+### Load standards data
+
+```{r}
+standard_concs <- readxl::read_excel("data/cline_assays/2023-05-29-Clines/standards_concentration.xlsx")
+```
+
+### Load excluded samples list
+
+```{r}
+excluded_samples <- readxl::read_excel(path = "data/cline_assays/2023-05-29-Clines/excluded_wells.xlsx") |> pull(sample_id)
+```
+
+### Combine Plate Data and Maps
+
+```{r}
+cline_data <- data |> 
+  left_join(maps,
+            by = c("Plate", "Wells")) |> 
+  # add standard info
+  mutate(
+    is.standard = if_else(
+      str_detect(sample_id, "STD"),
+      TRUE,
+      FALSE
+    ),
+    is.blank = if_else(
+      str_detect(sample_id, "BLANK"),
+      TRUE,
+      FALSE
+    ),
+    is.empty = if_else(
+      str_detect(sample_id, "EMPTY"),
+      TRUE,
+      FALSE
+    )
+  )
+```
+
+### Calculate average blank signal
+
+```{r}
+mean_blank <- cline_data |> 
+  filter(is.blank) |> 
+  pull(values) |> 
+  mean()
+
+paste("The average blank absorbance value at 670 nm is", mean_blank)
+```
+
+# Create standard curve
+
+```{r}
+ standard_data <- cline_data |> 
+  filter(is.standard) |> 
+  left_join(standard_concs, by = "sample_id") |> 
+  select(-c(is.standard, is.blank, is.empty)) |> 
+  mutate(abs.corrected = values - mean_blank)
+
+p_std_curve <- standard_data |> 
+  filter(concentration.um < 150) |> 
+  ggplot(
+    aes(y = concentration.um,
+        x = abs.corrected
+        )
+  ) +
+  ggpmisc::stat_poly_line(method = "lm") +
+  geom_point(aes(color = sample_id),
+             alpha = 0.7) +
+  ggpmisc::stat_poly_eq(use_label(c("eq", "R2"))) +
+  labs(
+    y = "Concentration (µM)",
+    x = "Absorbance (670nm)"
+  ) +
+  theme_bw()
+p_std_curve
+
+plotly::ggplotly()
+
+
+# get equation
+std_curve <- lm(data =standard_data |> filter(concentration.um < 150),
+   concentration.um ~ abs.corrected
+   ) |> broom::tidy()
+std_int <- std_curve |> filter(term == "(Intercept)") |> pull(estimate)
+std_slope <- std_curve |> filter(term == "abs.corrected") |> pull(estimate)
+
+# Define a function that converts absorbance 670 to concentration of free sulfide
+convert_670_to_conc <- function(abs, slope, int) {
+  return((abs * std_slope) + std_int)
+}
+
+```
+
+# Calculate cline data concs
+
+### Calculate concentration of all samples
+
+```{r}
+cline_data_corrected <- cline_data |> 
+  # filter out non-samples
+  filter(!is.standard, !is.blank, !is.empty) |> 
+  # filter out excluded samples
+  filter(!sample_id %in% excluded_samples) |> 
+  # average 3 replicates
+  group_by(sample_id) |> 
+  summarize(abs.mean = mean(values),
+            abs.sd = sd(values)) |> 
+  ungroup() |> 
+  # subtract standards
+  mutate(
+    abs.corrected = if_else(
+      abs.mean - mean_blank >= 0,
+      true = abs.mean - mean_blank,
+      false = 0
+      )
+    ) |> 
+  # calculate um from standard curve equation
+  mutate(
+    conc.um = convert_670_to_conc(
+      abs = abs.corrected, 
+      slope = std_slope, 
+      int = std_int
+      ),
+    sd.conc.um = convert_670_to_conc(
+      abs = abs.sd, 
+      slope = std_slope, 
+      int = std_int
+  )) |> 
+  # add dilution factor
+  mutate(
+    DF = case_when(
+      str_detect(sample_id, "DIL1") ~ 4,
+      str_detect(sample_id, "DIL2") ~ 8,
+      TRUE ~ 1
+    )
+  ) |> 
+  # apply dilution factor
+  mutate(
+    conc.um.corr = conc.um * DF
+  ) |> 
+  # correct for dilution of adding to ZnAc solution
+  # 400 µL diluted to 1400µL is a DF of 3.5
+  mutate(
+    conc.um.corr = conc.um.corr * 3.5
+  ) |> 
+  # Add metadata
+  mutate(
+    well = case_when(
+      str_detect(sample_id, "BA1B") ~ "BA1B",
+      str_detect(sample_id, "BA3A") ~ "BA3A",
+      str_detect(sample_id, "BA4A") ~ "BA4A",
+      TRUE ~ NA
+    ),
+    depth = case_when(
+      str_detect(sample_id, "20") ~ 20,
+      str_detect(sample_id, "150") ~ 150,
+      str_detect(sample_id, "250") ~ 250,
+      str_detect(sample_id, "270") ~ 270,
+    ),
+    amendment = case_when(
+      str_detect(sample_id, "BIC") ~ "Bicarbonate",
+      str_detect(sample_id, "AC") ~ "Acetate",
+      str_detect(sample_id, "F") ~ "Formate",
+      str_detect(sample_id, "CTL") ~ "Control",
+    )
+  ) |> 
+  # remove diluted samples:
+  # none of our samples are outside the dynamic range of the instrument!
+  filter(!str_detect(sample_id, "DIL")) |> 
+  mutate(label = if_else(
+    conc.um.corr > 3,
+    true = as.character(round(conc.um.corr,1)),
+    false = "ND"
+    ))
+  
+```
+
+# Plot concentration of sulfide
+
+```{r}
+custom_order <- c("Acetate", "Bicarbonate", "Formate", "Control")
+
+cline_data_corrected |> 
+  mutate(amendment = fct_relevel(amendment, custom_order)) |>
+  ggplot() +
+  aes(
+    x = amendment,
+    y = conc.um.corr,
+    label = label
+  ) +
+  geom_col(fill = "black", width = 0.5) +
+  geom_text(size = 2, nudge_y = 30) +
+  facet_wrap(vars(well, depth)) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 500)) +
+  theme_bw() +
+  labs(
+    x = "Amendment",
+    y = "Sulfide Concentration (µM)"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid.major.x = element_blank(),
+    panel.grid.major.y = element_line(linetype = "dotted", color = "gray"),
+    panel.grid.minor.y = element_blank()
+  )
+#plotly::ggplotly()
+```
+
+# Plot difference of sulfide from control
+
+```{r}
+control_df <- cline_data_corrected |> 
+  filter(str_detect(sample_id, "CTL")) |> 
+  select(sample_id, conc.um.corr, well, depth) |> 
+  rename(ctl.conc.um = conc.um.corr)
+
+cline_data_diff <- cline_data_corrected |> 
+  left_join(control_df, by = c("well", "depth")) |> 
+  mutate(
+    diff.conc.um = conc.um.corr - ctl.conc.um,
+    label = if_else(
+      conc.um.corr > 3,
+      true = as.character(round(diff.conc.um,1)),
+      false = "ND"
+    )
+  )
+
+cline_data_diff |> 
+  mutate(amendment = fct_relevel(amendment, custom_order)) |>
+  filter(amendment != "Control") |> 
+  ggplot() +
+  aes(
+    x = amendment,
+    y = diff.conc.um,
+    label = label
+  ) +
+  ggrepel::geom_text_repel(
+    nudge_x = 0.5, 
+    nudge_y = 100, 
+    size = 3, 
+    color = "red",
+    segment.alpha = 0.25,
+    segment.curvature = 1
+    ) +
+  geom_point(size = 2) +
+  geom_linerange(
+    aes(ymin = 0, ymax = diff.conc.um)
+  ) +
+  geom_hline(yintercept = 0, color = "black") +
+  #geom_text(size = 2, nudge_y = 30) +
+  facet_wrap(vars(well, depth)) +
+  scale_y_continuous(expand = c(0, 0), limits = c(-500, 500)) +
+  theme_bw() +
+  labs(
+    x = "Amendment",
+    y = "Change in Sulfide Concentration (µM)"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid.major.x = element_blank(),
+    panel.grid.major.y = element_line(linetype = "dotted", color = "gray"),
+    panel.grid.minor.y = element_blank()
+  )
+```

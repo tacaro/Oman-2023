@@ -1,0 +1,4 @@
+"0","library(chemcal) # calculations from standard curve
+"
+"2","Error in library(chemcal) : there is no package called ‘chemcal’
+"

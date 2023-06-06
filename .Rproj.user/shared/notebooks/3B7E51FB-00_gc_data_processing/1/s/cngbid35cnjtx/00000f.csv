@@ -1,0 +1,30 @@
+"0","library(tidyverse) # Easily Install and Load the 'Tidyverse', CRAN v1.3.2"
+"0","library(plotly) # Create Interactive Web Graphics via 'plotly.js', CRAN v4.10.1"
+"2","Registered S3 method overwritten by 'data.table':
+  method           from
+  print.data.table     
+"
+"2","Registered S3 method overwritten by 'htmlwidgets':
+  method           from         
+  print.htmlwidget tools:rstudio
+"
+"2","
+Attaching package: ‘plotly’
+
+"
+"2","The following object is masked from ‘package:ggplot2’:
+
+    last_plot
+
+"
+"2","The following object is masked from ‘package:stats’:
+
+    filter
+
+"
+"2","The following object is masked from ‘package:graphics’:
+
+    layout
+
+"
+"0","library(reticulate) # Interface to 'Python', CRAN v1.28 "

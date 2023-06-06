@@ -1,0 +1,372 @@
+---
+title: "05_IC-ICP-processing"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+## Setup
+
+Clear the environment
+
+```{r}
+rm(list=ls())
+```
+
+### Load libraries
+
+```{r}
+library(tidyverse)
+```
+
+### Load data
+
+```{r}
+ic <- readxl::read_excel("data/IC-ICP/IC-ICP-data-cleaned.xlsx", sheet = 1,
+                         col_types = c("guess", "numeric", "numeric", "numeric", 
+                                       "numeric","numeric","numeric","numeric"))
+
+ic.loq <- readxl::read_excel("data/IC-ICP/IC-ICP-data-cleaned.xlsx", sheet = 2,
+                             col_types = "numeric")
+
+icp <- readxl::read_excel("data/IC-ICP/IC-ICP-data-cleaned.xlsx", sheet = 3)
+
+icp.dl <- readxl::read_excel("data/IC-ICP/IC-ICP-data-cleaned.xlsx", sheet = 4)
+```
+
+### Load Color Palette
+
+```{r}
+well_palette <- c("#207596", "#0b6646", "#013812")
+```
+
+## Add metadata, LOQ, DL
+
+Add the metadata:
+
+```{r}
+ic <- ic |> 
+  mutate(
+    well = case_when(
+      str_detect(`Sample ID`, "BA1B") ~ "BA1B",
+      str_detect(`Sample ID`, "BA3A") ~ "BA3A",
+      str_detect(`Sample ID`, "BA4A") ~ "BA4A",
+      str_detect(`Sample ID`, "BA1D") ~ "BA1D",
+      TRUE ~ NA
+    ),
+    depth = case_when(
+      str_detect(`Sample ID`, "-200") ~ 200,
+      str_detect(`Sample ID`, "-20") ~ 20,
+      str_detect(`Sample ID`, "150") ~ 150,
+      str_detect(`Sample ID`, "250") ~ 250,
+      str_detect(`Sample ID`, "270") ~ 270,
+      str_detect(`Sample ID`, "275") ~ 275,
+      str_detect(`Sample ID`, "120") ~ 120
+    )
+    ) |> 
+  rename(sample_id = `Sample ID`)
+
+icp <- icp |> 
+  mutate(
+    well = case_when(
+      str_detect(`Sample Id`, "BA1B") ~ "BA1B",
+      str_detect(`Sample Id`, "BA3A") ~ "BA3A",
+      str_detect(`Sample Id`, "BA4A") ~ "BA4A",
+      str_detect(`Sample Id`, "BA1D") ~ "BA1D",
+      str_detect(`Sample Id`, "BA4B") ~ "BA4A", # change incorrect sample "4B"
+      TRUE ~ NA
+    ),
+    depth = case_when(
+      str_detect(`Sample Id`, "-200") ~ 200,
+      str_detect(`Sample Id`, "-20") ~ 20,
+      str_detect(`Sample Id`, "150") ~ 150,
+      str_detect(`Sample Id`, "250") ~ 250,
+      str_detect(`Sample Id`, "270") ~ 270,
+      str_detect(`Sample Id`, "275") ~ 275,
+      str_detect(`Sample Id`, "120") ~ 120
+    )
+    ) |> 
+  rename(sample_id = `Sample Id`)
+```
+
+Add the LOQ to IC data:
+
+```{r}
+ic.long <- ic |> 
+  pivot_longer(cols = -c(sample_id, depth, well), 
+               values_to = "Concentration (mg/L)", 
+               names_to = "compound") |> 
+  # remove the mg/L in parentheses
+  mutate(compound = str_replace_all(compound, "\\s*\\(.*?\\)", ""))
+
+ic.loq.long <- ic.loq |> 
+  pivot_longer(cols = everything(),
+    values_to = "LOQ (mg/L)", 
+    names_to = "compound") |> 
+  # remove the mg/L in parentheses
+  mutate(compound = str_replace_all(compound, "\\s*\\(.*?\\)", ""))
+
+ic.complete <- ic.long |> 
+  left_join(ic.loq.long, by = "compound") |> 
+  mutate(
+    quantifiable = case_when(
+      is.na(`Concentration (mg/L)`) ~ FALSE,
+      `Concentration (mg/L)` >= `LOQ (mg/L)` ~ TRUE,
+      `Concentration (mg/L)` > `LOQ (mg/L)` ~ FALSE
+  )
+  )
+
+# Remove intermediate tibbles
+rm(ic.long)
+rm(ic.loq.long)
+```
+
+Add Detection Limit to ICP data
+
+```{r}
+icp.long <- icp |> 
+  select(-c(`Ar 420.069 - A (IS)`, `Sc 357.253 - A (IS)`, `Sc 361.383 - R (IS)`)) |> 
+  pivot_longer(cols = -c(sample_id, well, depth),
+               values_to = "Concentration (mg/L)", 
+               names_to = "compound") |> 
+  mutate(
+    compound = str_replace_all(compound, "\\s*\\(.*?\\)", "")
+  )
+
+icp.dl.long <- icp.dl |>  pivot_longer(
+  cols = everything(),
+  values_to = "DL (mg/L)", 
+  names_to = "compound"
+  ) |> 
+  mutate(
+    compound = str_replace_all(compound, "\\s*\\(.*?\\)", "")
+  )
+
+icp.complete <- icp.long |> 
+  left_join(icp.dl.long, by = "compound") |> 
+  mutate(
+    quantifiable = case_when(
+      is.na(`Concentration (mg/L)`) ~ FALSE,
+      `Concentration (mg/L)` >= `DL (mg/L)` ~ TRUE,
+      `Concentration (mg/L)` < `DL (mg/L)` ~ FALSE
+  )
+  )
+
+# Remove intermediate tibbles
+rm(icp.long)
+rm(icp.dl.long)
+```
+
+## Plot
+
+### Sulfate
+
+```{r}
+p_so4 <- ic.complete |> 
+  filter(compound == "Sulfate") |> 
+  filter(well != "BA1D") |> 
+  filter(!depth %in% c(200, 275)) |> 
+  mutate(condition = paste(well, depth)) |> 
+  group_by(well) |> 
+  mutate(condition = fct_reorder(.f = condition, .x = depth)) |> 
+  ggplot(
+    aes(
+      x = condition,
+      y = `concentration (mg/L)`,
+      fill = well
+    )
+  ) +
+  geom_col() +
+  scale_y_continuous(expand = c(0,0)) +
+  scale_fill_manual(values = well_palette) +
+  labs(
+    x = "",
+    y = "Concentration (mg/L)",
+    fill = "",
+    title = latex2exp::TeX("Sulfate $(SO_{4}^{2-})$")
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "None"
+  )
+p_so4
+```
+
+### Chloride
+
+```{r}
+p_cl <- ic.complete |> 
+  filter(compound == "Chloride") |> 
+  filter(well != "BA1D") |> 
+  filter(!depth %in% c(200, 275)) |> 
+  mutate(condition = paste(well, depth)) |> 
+  group_by(well) |> 
+  mutate(condition = fct_reorder(.f = condition, .x = depth)) |> 
+  ggplot(
+    aes(
+      x = condition,
+      y = `concentration (mg/L)`,
+      fill = well
+    )
+  ) +
+  geom_col() +
+  scale_y_continuous(expand = c(0,0)) +
+  scale_fill_manual(values = well_palette) +
+  labs(
+    x = "",
+    y = "Concentration (mg/L)",
+    title = latex2exp::TeX("Chloride $(Cl^-)$"),
+    fill = ""
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "None"
+  )
+p_cl
+
+legend <- cowplot::get_legend(
+  # create some space to the left of the legend
+  p_cl + theme(legend.position = "right", legend.box.margin = margin(0, 0, 0, 12))
+)
+```
+
+### Iron
+
+```{r}
+p_fe <- icp.complete |> 
+  filter(compound == "Fe 238.204 - A") |> 
+  filter(well != "BA1D") |> 
+  filter(!depth %in% c(200, 275)) |> 
+  mutate(condition = paste(well, depth)) |> 
+  group_by(well) |> 
+  mutate(condition = fct_reorder(.f = condition, .x = depth)) |> 
+  ggplot(
+    aes(
+      x = condition,
+      y = `Concentration (mg/L)`,
+      fill = well,
+      label = if_else(
+        quantifiable,
+        true =  as.character(round(`Concentration (mg/L)`, 3)),
+        false = "ND"
+      )
+    )
+  ) +
+  geom_col() +
+  ggrepel::geom_text_repel(
+    nudge_x = 0.2, 
+    nudge_y = 0.1, 
+    size = 3, 
+    color = "black",
+    segment.alpha = 0.25,
+    segment.curvature = 1
+    ) +
+  scale_y_continuous(expand = c(0,0)) +
+  scale_fill_manual(values = well_palette) +
+  labs(
+    x = "",
+    y = "Concentration (mg/L)",
+    title = latex2exp::TeX("Total Dissolved Iron $(Fe^{2+}/Fe^{3+})$"),
+    fill = ""
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "None"
+  )
+p_fe
+```
+
+```{r}
+p_ca <- icp.complete |> 
+  filter(compound == "Ca 317.933 - A") |> 
+  filter(well != "BA1D") |> 
+  filter(!depth %in% c(200, 275)) |> 
+  mutate(condition = paste(well, depth)) |> 
+  group_by(well) |> 
+  mutate(condition = fct_reorder(.f = condition, .x = depth)) |> 
+  ggplot(
+    aes(
+      x = condition,
+      y = `Concentration (mg/L)`,
+      fill = well,
+      label = if_else(
+        quantifiable,
+        true =  as.character(round(`Concentration (mg/L)`, 2)),
+        false = "ND"
+      )
+    )
+  ) +
+  geom_col() +
+  # ggrepel::geom_text_repel(
+  #   nudge_x = 0.2, 
+  #   nudge_y = 0.1, 
+  #   size = 3, 
+  #   color = "black",
+  #   segment.alpha = 0.25,
+  #   segment.curvature = 1
+  #   ) +
+  scale_y_continuous(expand = c(0,0)) +
+  scale_fill_manual(values = well_palette) +
+  labs(
+    x = "",
+    y = "Concentration (mg/L)",
+    title = latex2exp::TeX("Calcium $(Ca^{2+})$"),
+    fill = ""
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "None"
+  )
+p_ca
+```
+
+### Cowplot SO4, Cl, Fe, Ca
+
+```{r}
+cowplot::plot_grid(p_so4, p_cl, p_fe, p_ca, nrow = 2)
+```
+
+### Cations
+
+```{r}
+p_cations <- icp.complete |> 
+  filter(well != "BA1D") |> 
+  filter(!depth %in% c(200, 275)) |> 
+  mutate(condition = paste(well, depth)) |> 
+  mutate(`Concentration (mg/L)` = if_else(
+    quantifiable,
+    true = `Concentration (mg/L)`,
+    false = 0
+  )) |>
+  group_by(well) |> 
+  mutate(condition = fct_reorder(.f = condition, .x = depth)) |> 
+  ggplot(
+    aes(
+      x = condition,
+      y = `Concentration (mg/L)`,
+      fill = well
+    )
+  ) +
+  geom_col() +
+  scale_y_continuous(expand = c(0,0)) +
+  facet_wrap(vars(compound), scales = "free") +
+  scale_fill_manual(values = well_palette) +
+  labs(
+    x = "",
+    y = "Concentration (mg/L)",
+    fill = "",
+    title = "Cations",
+    caption = "Values below detection limit omitted"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 6),
+    legend.position = "None"
+  )
+p_cations
+```

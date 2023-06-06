@@ -1,0 +1,26 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1678997976590.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "1374161288",
+    "id" : "676949E1",
+    "lastKnownWriteTime" : 1678996549,
+    "last_content_update" : 1678996549,
+    "path" : "C:/Users/CUBESSIL/Downloads/CHOP_230217_v6.1_2dis.rmd",
+    "project_path" : null,
+    "properties" : {
+        "chunk_output_type" : "inline",
+        "cursorPosition" : "357,0",
+        "scrollLine" : "0"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 6,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_markdown"
+}

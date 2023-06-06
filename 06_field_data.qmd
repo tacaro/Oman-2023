@@ -1,0 +1,96 @@
+---
+title: "06_field_data"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+# Setup
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+om23 <- readxl::read_excel("data/OM23_field_data.xlsx") |> 
+  group_by(well) |> 
+  mutate(condition = fct_reorder(.f = condition, .x = depth))
+
+well_palette <- c("#207596", "#0b6646", "#013812")
+```
+
+# Plot 1
+
+```{r}
+p_pH <- om23 |> 
+  filter(!well %in% c("NSHQ14", "BA1D"), depth %in% c(20, 150, 250, 270)) |> 
+  ggplot(
+  aes(
+    x = condition,
+    y = pH,
+    fill = well,
+    label = pH
+  )
+) +
+  geom_col() +
+  scale_y_continuous(expand = c(0,0), limits = c(0, 14)) +
+  scale_fill_manual(values = well_palette) +
+  ggrepel::geom_text_repel(
+    nudge_y = -0.5,
+    color = "white",
+    segment.color = NA,
+    segment.curvature = 1,
+    size = 3) +
+  theme_classic() +
+  labs(
+    x = "",
+    fill = "",
+    title = "pH"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "none"
+  )
+p_pH
+```
+
+# Plot 2
+
+```{r}
+p_cond <- om23 |> 
+  filter(!well %in% c("NSHQ14", "BA1D"), depth %in% c(20, 150, 250, 270)) |> 
+  ggplot(
+  aes(
+    x = condition,
+    y = `conductivity (µS/cm)`,
+    fill = well,
+    label = `conductivity (µS/cm)`
+  )
+) +
+  geom_col() +
+  scale_y_continuous(expand = c(0,0), limits = c(0, 3500)) +
+  scale_fill_manual(values = well_palette) +
+  ggrepel::geom_text_repel(
+    nudge_y = -10,
+    color = "white",
+    segment.color = NA,
+    segment.curvature = 1,
+    size = 3) +
+  theme_classic() +
+  labs(
+    x = "",
+    fill = "",
+    y = "Conductivity (µS/cm)",
+    title = "Conductivity"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "none"
+  )
+p_cond
+```
+
+```{r}
+cowplot::plot_grid(p_pH, p_cond)
+```

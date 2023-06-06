@@ -1,0 +1,216 @@
+---
+title: "cd% processing"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+# Load Packages and Source
+
+```{r}
+library(tidyverse)
+
+source("source/calculate_mu.R")
+source("source/calculate_sigma_mu.R")
+```
+
+# Load Data
+
+```{r}
+om23cd <- readxl::read_excel("data/Raman/OM23_2H_RawData.xlsx") |> 
+  mutate(
+    # parse depth
+    depth.m = as.numeric(str_sub(Borehole, start = -3)),
+    Borehole = str_sub(Borehole, start = 1, end = 4)
+  ) |> 
+  rename(
+    cd = `CD%`,
+    fl = `F(L)`,
+    dt = `Incubation-time (d)`
+  )
+```
+
+# Calculate growth rate
+
+```{r}
+om23u <- om23cd |> 
+  mutate(
+    u.d = calculate_mu(a = 0.84, F2 = cd, F1 = 0, FL = fl, t1 = 0, t2 = dt)
+  ) |> 
+  mutate(
+    su.d = calculate_sigma_mu(
+      a = 0.84,
+      F2 = cd,
+      F1 = 0,
+      FL = fl,
+      t2 = dt,
+      t1 = 0,
+      sigma_a = 0,
+      sigma_F2 = 0.45,
+      sigma_F1 = 0,
+      sigma_FL = 0
+    )
+  ) |> 
+  mutate(gen.d = log(2) / u.d) |> 
+  mutate(rel_error = su.d / u.d,
+         quantifiable = if_else(rel_error <= 0.5, true = TRUE, false = FALSE))
+```
+
+# Find nat abund control params
+
+```{r}
+natabund_ctl <- om23u |> 
+  filter(Amendment == "H2O") |> 
+  summarize(
+    mean_cd = mean(cd, na.rm = TRUE),
+    sd_cd = sd(cd, na.rm = TRUE),
+    mean_ud = mean(u.d, na.rm = TRUE),
+    sd_ud = sd(u.d, na.rm = TRUE)
+  )
+```
+
+# Plot
+
+## Plot 1
+
+```{r}
+om23u |> 
+  filter(Amendment != "H2O") |> 
+  #filter(quantifiable == TRUE) |> 
+  ggplot() +
+  aes(
+    x = Borehole,
+    y = u.d,
+  ) +
+  geom_hline(yintercept = natabund_ctl |> pull(mean_ud),
+             color = "red") +
+  geom_rect(
+    data = natabund_ctl,
+    map = aes(
+      xmin = -Inf, xmax = Inf, x = NULL, y = NULL,
+      ymin = mean_ud - 2*sd_ud, ymax = mean_ud + 2*sd_ud,
+    ),
+    alpha = 0.3,
+    fill = "red"
+  ) +
+  geom_point(
+    aes(color = quantifiable),
+    size = 5,
+    alpha = .3,
+    shape = 95,
+    position = position_nudge(x = - 0.2)
+  ) + 
+  ggdist::stat_halfeye() + 
+  ggsci::scale_fill_npg() +
+  facet_grid(.~Amendment) +
+  labs(
+    x = ""
+  ) +
+  labs(
+    y = latex2exp::TeX("$\\mu \\ (d^{-1})$"),
+    color = "Quantifiable?"
+  ) +
+  theme_bw() +
+  theme(
+    strip.background = element_rect(fill = "black"),
+    strip.text = element_text(color = "white")
+  )
+```
+
+## Plot 1b
+
+```{r}
+om23u |> 
+  filter(Amendment != "H2O") |> 
+  filter(gen.d < 1000) |> 
+  filter(quantifiable == TRUE) |> 
+  ggplot() +
+  aes(
+    x = Borehole,
+    y = gen.d,
+  ) +
+  geom_hline(yintercept = natabund_ctl |> pull(mean_ud),
+             color = "red") +
+  # geom_rect(
+  #   data = natabund_ctl,
+  #   map = aes(
+  #     xmin = -Inf, xmax = Inf, x = NULL, y = NULL,
+  #     ymin = mean_ud - 2*sd_ud, ymax = mean_ud + 2*sd_ud,
+  #   ),
+  #   alpha = 0.3,
+  #   fill = "red"
+  # ) +
+  geom_point(
+    aes(color = quantifiable),
+    size = 2,
+    alpha = .3,
+    #shape = 95,
+    #position = position_nudge(x = - 0.2)
+  ) + 
+  geom_boxplot(outlier.shape = NA, fill = NA) +
+  ggsci::scale_fill_npg() +
+  facet_grid(.~Amendment) +
+  labs(
+    x = ""
+  ) +
+  labs(
+    y = "Gen Time (d)",
+    color = "Quantifiable?"
+  ) +
+  theme_bw() +
+  theme(
+    strip.background = element_rect(fill = "black"),
+    strip.text = element_text(color = "white")
+  )
+```
+
+## Plot 2
+
+```{r}
+om23u |> 
+  ggplot() +
+  aes(
+    x = cd,
+    y = .d,
+    color = quantifiable
+  ) +
+  geom_pointrange(
+    aes(
+      ymax = u.d + su.d,
+      ymin = u.d - su.d
+    ),
+    alpha = 0.5
+  ) +
+  coord_cartesian(xlim = c(0,20), ylim = c(0, 1)) +
+  theme_bw() +
+  labs(
+    x = "CD%",
+    y = latex2exp::TeX("$\\mu \\ (d^{-1})$"),
+    title = "Quantifiable range where relative error < 50%",
+    color = "Quantifiable?"
+  )
+  
+```
+
+## Plot 3
+
+```{r}
+om23u |> 
+  ggplot() +
+  aes(
+    x = cd,
+    y = gen.d,
+    color = quantifiable
+  ) +
+  geom_point() +
+  #coord_cartesian(xlim = c(0,20), ylim = c(0, 1)) +
+  scale_y_log10() +
+  theme_bw() +
+  labs(
+    x = "CD%",
+    y = "Generation Time (d)",
+    title = "Quantifiable range where relative error < 50%",
+    color = "Quantifiable?"
+  )
+```

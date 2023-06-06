@@ -1,0 +1,173 @@
+---
+title: "03_nanoSIMS_processing"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+Clear the environment
+
+```{r}
+rm(list=ls())
+```
+
+# Load libraries
+
+```{r}
+library(tidyverse)
+library(ggdist)
+library(ggforce)
+```
+
+# Import data
+
+```{r}
+data_path <- "data/nanoSIMS_tables/collected_tables/"
+
+
+if (file.exists("cache/nanoSIMS_data.RDS")) {
+  roi_data <- readRDS("cache/roi_data.RDS")
+} else {
+  tsv_file_list = list.files(path = data_path, pattern="*.tsv")
+  
+  roi_data <- tibble()
+  roi_data <- roi_data[-1,] # Remove the garbage row of the tibble
+  i = 0
+  
+  for (tsv in tsv_file_list) {
+    temp <- read_tsv(paste0(data_path, tsv),
+                     col_types = cols())
+    temp <- temp %>% mutate(filename = tsv)
+    roi_data <- bind_rows(roi_data, temp)
+    i <- i + 1
+    print(paste("File", i, "of", length(tsv_file_list), "loaded."))
+  }
+  saveRDS(roi_data, "cache/roi_data.RDS")
+}
+
+rm(temp) # remove the temp
+```
+
+# Add metadata
+
+```{r}
+roi_data <- roi_data |> 
+  # remove the suffix, whichi s 23 characters long
+  mutate(sample_id = str_sub(filename, end = -23)) |> 
+  # add well info
+  mutate(
+    well = str_sub(sample_id, end = 4),
+    # parse the depth as a 3 digit number
+    depth = as.numeric(str_extract(sample_id, "\\d{2,3}")),
+    amendment = case_when(
+      str_detect(sample_id, "AC") ~ "acetate",
+      str_detect(sample_id, "FORM") ~ "formate",
+      str_detect(sample_id, "BIC") ~ "bicarbonate",
+      str_detect(sample_id, "NEG") ~ "negative control",
+    )
+  ) |> 
+  # add factional abundance
+  mutate(F13C = Ratio_13Cx12C/ (1 + Ratio_13Cx12C))
+```
+
+# Plot 1
+
+```{r}
+neg_ctl_mean <- roi_data |> 
+  filter(amendment == "negative control") |> 
+  pull(Ratio_13Cx12C) |> 
+  mean(na.rm = TRUE)
+
+neg_ctl_sd <- roi_data |> 
+  filter(amendment == "negative control") |> 
+  pull(Ratio_13Cx12C) |> 
+  sd(na.rm = TRUE)
+
+custom_order = c("BA1B negative control", "BA1B formate", "BA1B bicarbonate", "BA1B acetate", "BA4A formate", "BA4A bicarbonate", "BA4A acetate")
+
+# Plot it
+p_ratio <- roi_data |> 
+  mutate(
+    condition = paste(well, amendment),
+    condition = fct_recode(condition, !!!setNames(custom_order, custom_order))
+  ) |> 
+  ggplot(
+  aes(
+    x = F13C,
+    y = condition,
+    color = as.factor(depth),
+    shape = as.factor(depth)
+  )
+) +
+  geom_point(
+    position = position_jitter(height = 0.25),
+    alpha = 0.5
+    ) +
+  geom_vline(xintercept = neg_ctl_mean, linewidth = 0.5, color = "red", alpha = 0.5) +
+  annotate(geom = "rect", 
+    xmin = neg_ctl_mean - (2*neg_ctl_sd),
+    xmax = neg_ctl_mean + (2*neg_ctl_sd),
+    ymin = -Inf, ymax = Inf,
+    color = NA,
+    fill = "red",
+    alpha = 0.25
+  ) +
+  scale_color_viridis_d(begin = 0.8, end = 0, option = "plasma") +
+  #ggforce::facet_zoom(xlim = c(0, 0.1)) +
+  theme_bw() +
+  labs(
+    x = latex2exp::TeX("$^{13}F$"),
+    y = "",
+    color = "Depth (mbs)",
+    shape = "Depth (mbs)"
+  ) +
+  theme(
+    strip.background = element_rect(fill = "#e3e3e3", color = NA)
+    )
+p_ratio
+
+```
+
+```{r}
+p_ratio2 <- roi_data |> 
+  mutate(
+    condition = paste(well, amendment),
+    condition = fct_recode(condition, !!!setNames(custom_order, custom_order))
+  ) |> 
+  ggplot(
+  aes(
+    x = F13C,
+    y = condition,
+    color = as.factor(depth),
+    shape = as.factor(depth)
+  )
+) +
+  stat_dist_pointinterval(size = 5) +
+  # geom_point(
+  #   position = position_jitter(height = 0.25),
+  #   alpha = 0.5
+  #   ) +
+  geom_vline(xintercept = neg_ctl_mean, linewidth = 0.5, color = "red", alpha = 0.5) +
+  annotate(geom = "rect", 
+    xmin = neg_ctl_mean - (2*neg_ctl_sd),
+    xmax = neg_ctl_mean + (2*neg_ctl_sd),
+    ymin = -Inf, ymax = Inf,
+    color = NA,
+    fill = "red",
+    alpha = 0.25
+  ) +
+  scale_color_viridis_d(begin = 0.8, end = 0, option = "plasma") +
+  facet_wrap(vars(depth), ncol = 4) +
+  theme_bw() +
+  labs(
+    x = latex2exp::TeX("$^{13}F$"),
+    y = "",
+    color = "Depth (mbs)",
+    shape = "Depth (mbs)"
+  ) +
+  theme(
+    strip.background = element_rect(fill = "#e3e3e3", color = "black")
+    )
+p_ratio2
+```

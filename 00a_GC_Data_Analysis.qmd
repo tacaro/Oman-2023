@@ -1,0 +1,47 @@
+---
+title: "GC Data Analysis"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+## Setup
+
+```{r}
+library(tidyverse)
+library(lubridate)
+```
+
+```{r}
+gc_data0 <- readRDS("cache/gc_samples0.RDS")
+gc_data1 <- readRDS("cache/gc_samples1.RDS")
+
+```
+
+## Add difftime
+
+```{r}
+gc_data <- bind_rows(gc_data0, gc_data1) |> 
+  mutate(dt = case_when(
+    is.na(sample_set) ~ 33,
+    sample_set == "A" ~ 60,
+    sample_set == "B" ~ 114
+  ))
+```
+
+```{r}
+gc_data |> 
+  filter(gas == "CH4") |> 
+  ggplot(
+    aes(x = dt,
+        y = nmol_per_ml,
+        color = as.factor(depth),
+        shape = well,
+        linetype = well
+        )
+  ) +
+  geom_point() +
+  geom_line() +
+  facet_wrap(vars(amendment))
+```
