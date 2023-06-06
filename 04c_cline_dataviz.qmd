@@ -1,0 +1,74 @@
+---
+title: "Cline Data Vizualization"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+## Setup
+
+```{r}
+rm(list=ls()) # Clear the environment
+library(tidyverse)
+library(ggrepel)
+```
+
+### Read from cache
+
+```{r}
+df1 <- read_rds("cache/2023-05-23-cline_data.RDS")
+df2 <- read_rds("cache/2023-06-05-cline_data.RDS")
+
+# combine the two datasets
+clines <- bind_rows(df1, df2) |> 
+  mutate(dt = case_when(
+    sample_set == "CTL" ~ 0,
+    sample_set == "B" ~ 118,
+    sample_set == "A" ~ 34,
+  ))
+
+# pull the controls
+clines_ctls <- clines |> filter(amendment == "Control") |> 
+  #rename(CTL.conc.um = conc.um) |> 
+  select(conc.um, sd.conc.um, well, depth) |> 
+  crossing(amendment = c("Acetate", "Formate", "Bicarbonate")) |> 
+  mutate(sample_set = "CTL",
+         dt = 0)
+
+clines_wctls <- clines |> 
+  filter(amendment != "Control") |> 
+  bind_rows(clines_ctls)
+  
+rm(df1, df2) # remove excess tibbles
+```
+
+# Plot
+
+```{r}
+clines_wctls |> 
+  mutate(depth.str = paste(depth, "m")) |> 
+  mutate(depth.str = fct_reorder(.f = depth.str, .x = depth)) |> 
+  ggplot(
+    aes(x = dt,
+        y = conc.um,
+        color = well,
+        linetype = amendment,
+        shape = amendment)
+  ) +
+  geom_point() +
+  geom_line() +
+  geom_errorbar(aes(
+    ymin = conc.um - sd.conc.um,
+    ymax = conc.um + sd.conc.um
+    ),
+    width = 3,
+    linetype = "solid"
+  ) +
+  facet_wrap(vars(depth.str), ncol = 1) +
+  theme_bw() +
+  labs(
+    x = "Incubation Time (Days)",
+    y = "Total Sulfide (µM)"
+  )
+```

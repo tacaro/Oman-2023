@@ -1,15 +1,14 @@
 ---
-title: "04_cline_processing"
-author: "Tristan Caro"
+title: "Cline Processing 2"
 format: html
 editor: visual
 editor_options: 
   chunk_output_type: console
 ---
 
-This is a script for processing of Cline sulfide assay data from the "control" unamended samples.
+This is a script for the processing of Cline samples from the "B" sample-set.
 
-# Setup
+## Setup
 
 ```{r}
 # Clear the environment
@@ -27,8 +26,10 @@ library(ggpmisc)
 ### Load plates with plater package
 
 ```{r}
-plate_list <- list.files(path = "data/cline_assays/2023-05-29-Clines/csvs")
-plate_list2 <- str_c("data/cline_assays/2023-05-29-Clines/csvs/", plate_list)
+plate_list <- list.files(path = "data/cline_assays/2023-06-05-Clines/csvs")
+plate_list <- plate_list[!grepl("map", plate_list)]
+
+plate_list2 <- str_c("data/cline_assays/2023-06-05-Clines/csvs/", plate_list)
 
 plate_names <- plate_list |> str_remove(".csv") |> str_to_lower()
 
@@ -45,14 +46,14 @@ data <- read_plates(
   ))
 ```
 
-### Load plate maps
+### Load Plate Maps
 
 ```{r}
-maps <- read_plates(
-  files = c("data/cline_assays/2023-05-29-Clines/maps/mapPlateA.csv",
-            "data/cline_assays/2023-05-29-Clines/maps/mapPlateB.csv",
-            "data/cline_assays/2023-05-29-Clines/maps/mapPlateC.csv")
-) |> 
+map_list <- list.files(path = "data/cline_assays/2023-06-05-Clines/csvs")
+map_list <- map_list[grepl("map", map_list)]
+map_list <- str_c("data/cline_assays/2023-06-05-Clines/csvs/", map_list)
+
+maps <- read_plates(files = map_list) |> 
   mutate(
     Plate = str_remove(Plate, pattern = "map") |> str_to_lower(),
     sample_id = case_when(
@@ -70,10 +71,10 @@ maps <- read_plates(
 standard_concs <- readxl::read_excel("data/cline_assays/2023-05-29-Clines/standards_concentration.xlsx")
 ```
 
-### Load excluded samples list
+### Load list of diluted samples
 
 ```{r}
-excluded_samples <- readxl::read_excel(path = "data/cline_assays/2023-05-29-Clines/excluded_wells.xlsx") |> pull(sample_id)
+diluted_samples <- readxl::read_excel("data/cline_assays/2023-06-05-Clines/diluted_samples.xlsx") |> pull()
 ```
 
 ### Combine Plate Data and Maps
@@ -165,8 +166,6 @@ convert_670_to_conc <- function(abs, slope, int) {
 cline_data_corrected <- cline_data |> 
   # filter out non-samples
   filter(!is.standard, !is.blank, !is.empty) |> 
-  # filter out excluded samples
-  filter(!sample_id %in% excluded_samples) |> 
   # average 3 replicates
   group_by(sample_id) |> 
   summarize(abs.mean = mean(values),
@@ -175,13 +174,11 @@ cline_data_corrected <- cline_data |>
   # add dilution factor
   mutate(
     DF = case_when(
-      str_detect(sample_id, "DIL1") ~ 4,
-      str_detect(sample_id, "DIL2") ~ 8,
+      str_detect(sample_id, "DIL1") ~ 10,
       TRUE ~ 1
     )
   ) |> 
-  # apply dilution factor
-  # subtract standards
+  # correct the absorbance values by subtracting blanks and multiplying by DF
   mutate(
     abs.corrected = if_else(
       abs.mean - mean_blank >= 0,
@@ -229,19 +226,16 @@ cline_data_corrected <- cline_data |>
   ) |> 
   # remove diluted samples:
   # none of our samples are outside the dynamic range of the instrument!
-  filter(!str_detect(sample_id, "DIL")) |> 
+  #filter(!str_detect(sample_id, "DIL")) |> 
   mutate(label = if_else(
     conc.um > 3,
-    true = as.character(round(conc.um,1)),
+    true = as.character(round(conc.um, 1)),
     false = "ND"
     )) |> 
-  # add timepoint info
+  filter(!sample_id %in% diluted_samples) |> 
+  # add timepoint information
   mutate(
-    sample_set = if_else(
-      amendment == "Control",
-      true = "CTL",
-      false = "A"
-    )
+    sample_set = "B"
   )
   
 ```
@@ -260,9 +254,10 @@ cline_data_corrected |>
     label = label
   ) +
   geom_col(fill = "black", width = 0.5) +
-  geom_text(size = 2, nudge_y = 30) +
-  facet_wrap(vars(well, depth)) +
-  scale_y_continuous(expand = c(0, 0), limits = c(0, 500)) +
+  geom_text(aes(y = conc.um - (0.1 * conc.um)),
+    size = 2, color = "white") +
+  facet_wrap(vars(well, depth), scales = "free_y") +
+  scale_y_continuous(expand = c(0, 0)) +
   theme_bw() +
   labs(
     x = "Amendment",
@@ -277,65 +272,8 @@ cline_data_corrected |>
 #plotly::ggplotly()
 ```
 
-# Plot difference of sulfide from control
+# Export and cache
 
 ```{r}
-control_df <- cline_data_corrected |> 
-  filter(str_detect(sample_id, "CTL")) |> 
-  select(sample_id, conc.um.corr, well, depth) |> 
-  rename(ctl.conc.um = conc.um.corr)
-
-cline_data_diff <- cline_data_corrected |> 
-  left_join(control_df, by = c("well", "depth")) |> 
-  mutate(
-    diff.conc.um = conc.um.corr - ctl.conc.um,
-    label = if_else(
-      conc.um.corr > 3,
-      true = as.character(round(diff.conc.um,1)),
-      false = "ND"
-    )
-  )
-
-cline_data_diff |> 
-  mutate(amendment = fct_relevel(amendment, custom_order)) |>
-  filter(amendment != "Control") |> 
-  ggplot() +
-  aes(
-    x = amendment,
-    y = diff.conc.um,
-    label = label
-  ) +
-  ggrepel::geom_text_repel(
-    nudge_x = 0.5, 
-    nudge_y = 100, 
-    size = 3, 
-    color = "red",
-    segment.alpha = 0.25,
-    segment.curvature = 1
-    ) +
-  geom_point(size = 2) +
-  geom_linerange(
-    aes(ymin = 0, ymax = diff.conc.um)
-  ) +
-  geom_hline(yintercept = 0, color = "black") +
-  #geom_text(size = 2, nudge_y = 30) +
-  facet_wrap(vars(well, depth)) +
-  scale_y_continuous(expand = c(0, 0), limits = c(-500, 500)) +
-  theme_bw() +
-  labs(
-    x = "Amendment",
-    y = "Change in Sulfide Concentration (µM)"
-  ) +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    panel.grid.major.x = element_blank(),
-    panel.grid.major.y = element_line(linetype = "dotted", color = "gray"),
-    panel.grid.minor.y = element_blank()
-  )
-```
-
-# Export and Cache
-
-```{r}
-saveRDS(object = cline_data_corrected, file = "cache/2023-05-23-cline_data.RDS")
+saveRDS(object = cline_data_corrected, file = "cache/2023-06-05-cline_data.RDS")
 ```
