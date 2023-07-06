@@ -17,7 +17,7 @@ om23 <- readxl::read_excel("data/OM23_field_data.xlsx") |>
   group_by(well) |> 
   mutate(condition = fct_reorder(.f = condition, .x = depth))
 
-well_palette <- c("#207596", "#0b6646", "#013812")
+well_palette <- c("#207596", "#013812", "#0b6646")
 ```
 
 # Plot 1
@@ -25,6 +25,7 @@ well_palette <- c("#207596", "#0b6646", "#013812")
 ```{r}
 p_pH <- om23 |> 
   filter(!well %in% c("NSHQ14", "BA1D"), depth %in% c(20, 150, 250, 270)) |> 
+  #mutate(well = fct_relevel(well, c("BA1B", "BA4A", "BA3A"))) |> 
   ggplot(
   aes(
     x = condition,

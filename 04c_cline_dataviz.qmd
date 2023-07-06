@@ -46,17 +46,20 @@ rm(df1, df2) # remove excess tibbles
 # Plot
 
 ```{r}
+amendment_palette <- c("#9c0000", "#004e9c", "#003b09")
+
 clines_wctls |> 
   mutate(depth.str = paste(depth, "m")) |> 
   mutate(depth.str = fct_reorder(.f = depth.str, .x = depth)) |> 
   ggplot(
     aes(x = dt,
         y = conc.um,
-        color = well,
+        color = amendment,
         linetype = amendment,
         shape = amendment)
   ) +
   geom_point() +
+  scale_color_manual(values = amendment_palette) +
   geom_line() +
   geom_errorbar(aes(
     ymin = conc.um - sd.conc.um,
@@ -65,7 +68,7 @@ clines_wctls |>
     width = 3,
     linetype = "solid"
   ) +
-  facet_wrap(vars(depth.str), ncol = 1) +
+  facet_wrap(vars(well, depth.str), scales = "free_y") +
   theme_bw() +
   labs(
     x = "Incubation Time (Days)",

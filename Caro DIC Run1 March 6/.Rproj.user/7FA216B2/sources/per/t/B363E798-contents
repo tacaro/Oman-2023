@@ -14,7 +14,7 @@ output:
     toc_depth: 3
     code_folding: show
 editor_options:
-  chunk_output_type: inline
+  chunk_output_type: console
 ---
 
 # Summary of data reduction and run:
@@ -43,8 +43,7 @@ library(tidyverse) # dplyr, tidyr, ggplot, etc.
 library(openxlsx) # read/write from excel
 library(plotly) # interactive plots
 library(isoreader) # reading isotope data files
-library(chemcal) # calculations from standard curve
-library(ggpmisc) # add equations of best fit to ggplot
+library(chemCal) # calculations from standard curve
 library(isoprocessCUBES) #if loading this package for the first time, be sure to install the "devtools" package first, then install the isoprocessCUBES package: devtools::install_github("CUBESSIL/isoprocessCUBES")
 
 ```
@@ -71,6 +70,7 @@ raw.data <- dxf_data %>%
          type = `Identifier 2`,
          d13Craw = `d 13C/12C`,
          d18Oraw = `d 18O/16O`,
+         Ampl44 = `Ampl 44`,
          Area44 = `Intensity 44`) %>%    
   #changes mass data type to numeric data instead of character
   mutate(mass = as.numeric(mass), row = as.numeric(row))  %>%
@@ -88,10 +88,27 @@ raw.data <- dxf_data %>%
   
 #another way to change miss labeled or typos
 #updating name and mass for 2 swapped standards (based on their isotope values and adjacent positions)
-raw.data[  raw.data$Analysis == 9100, "Identifier1"] <- "HIS"
-raw.data[  raw.data$Analysis == 9100, "mass"] <- 99
-raw.data[  raw.data$Analysis == 9101, "Identifier1"] <- "NBS18"
-raw.data[  raw.data$Analysis == 9101, "mass"] <- 96
+raw.data[  raw.data$Analysis == 26750, "Identifier1"] <- "CU YULE"
+raw.data[  raw.data$Analysis == 26750, "mass"] <- 159
+raw.data[  raw.data$Analysis == 26750, "type"] <- "mon.std"
+
+raw.data[  raw.data$Analysis == 26751, "mass"] <- 994
+
+raw.data[  raw.data$Analysis == 26752, "mass"] <- 605
+
+raw.data[  raw.data$Analysis == 26753, "mass"] <- 487
+
+raw.data[  raw.data$Analysis == 26754, "mass"] <- 301
+
+raw.data[  raw.data$Analysis == 26755, "mass"] <- 266
+
+raw.data[  raw.data$Analysis == 26756, "mass"] <- 197
+
+
+raw.data[  raw.data$Analysis == 26757, "Identifier1"] <- "IAEA-603"
+raw.data[  raw.data$Analysis == 26757, "mass"] <- 121
+raw.data[  raw.data$Analysis == 26757, "type"] <- "lin.std"
+
 ```
 
 ## define standards and standard values
@@ -143,6 +160,8 @@ data <-
     d13C.sd=sd(d13Craw),
     d18O.raw.SMOW=mean(as.numeric(d18Oraw)),
     d18O.sd=sd(d18Oraw),
+    ampl44=mean(as.numeric(Ampl44)),
+      ampl44.sd=sd(as.numeric(Ampl44)),
     area44=mean(as.numeric(Area44)),
     area44.sd=sd(Area44),
     inv.area44=1/area44
@@ -306,13 +325,15 @@ dxf_files %>%
 ```{r plot.peaks.more}
 #If there are any additional chromatograms needed, just input the analysis numbers into the more.files list, replacing data$Analysis[5] with analysis number(s) - for example c(9536, 9655) instead of c(data$Analysis[5]). data$Analysis[5] is just acting as a stand-in to prevent errors if no additional analyses are selected
 
-more.files <- c(data$Analysis[5])
+#more.files <- c(data$Analysis[5])
+more.files <- c(26760, 26787)
 
 plot.more <- filter(data, Analysis %in% more.files)
 
 dxf_files %>% 
   iso_filter_files(file_id %in% plot.more$file_id) %>% 
-  iso_plot_raw_data(data = c(44), panel = "file", color = "data")
+  iso_plot_raw_data(data = c(44), panel = "file", color = "data") %>% 
+  ggplotly()
 
 ```
 
@@ -1095,6 +1116,76 @@ O.stds.table$scaleO.sd <- c(sd(scaleO.corr$d18O.scale), scaleO.mon.sd, sd(scaleO
 
 # [DIC] Calculations
 
+
+## Calculate the limit of quantification (LOQ)
+
+In order to calculate the signal for limit of quantitation:
+eq. 4.7.4 https://chem.libretexts.org/Courses/BethuneCookman_University/B-CU%3A_CH-345_Quantitative_Analysis/Book%3A_Analytical_Chemistry_2.1_(Harvey)/04%3A_Evaluating_Analytical_Data/4.07%3A_Detection_Limits
+
+The ability to detect the analyte with confidence is not the same as the ability to report with confidence its concentration, or to distinguish between its concentration in two samples. For this reason the American Chemical Society’s Committee on Environmental Analytical Chemistry recommends the limit of quantitation, (SA)LOQ:
+
+$(S_A)_{LOQ} = S_{mb} + 10\sigma_{mb}$
+Where 
+- $S_{mb}$ is the signal of the method blank
+- $S_{A}$ is the signal analyte at the $LOQ$ level of quantification
+- $\sigma_{mb}$ is the standard error of the method blank
+
+
+Signals $< 3\sigma$ are considered "analyte not detected". Signals between $3\sigma$ and $10\sigma$ are considered detected but not quantifiable "region of detection". Signals $>10\sigma$ are considered within the region of quantification. Therefore, $10\sigma$ is chosen as the *limit of quantification* (LOQ).
+
+```{r}
+
+method_blanks <- data %>%
+  filter(Analysis %in% c(26760, 26787))
+
+# print the blank data to a table so we can see
+method_blanks %>%
+  select(file_id, area44, ampl44) %>% 
+  knitr::kable()
+```
+
+Calculate signal and standard error of method blanks
+```{r}
+# calculate mean signal of method blanks
+S_mb <- method_blanks %>% pull(area44) %>% mean()
+sd_mb <- method_blanks %>% pull(area44) %>% sd()
+
+paste0("Method blanks exhibit mean signal (peak area) of ", round(S_mb, 2), " ± ", round(sd_mb, 2), " Vs")
+```
+
+Calculate the LOQ as Vs
+```{r}
+
+SA_LOQ <- S_mb + 10 * sd_mb
+
+paste0("The limit of quantification for this run is ", round(SA_LOQ, 2), " Vs")
+```
+
+
+Calculate the LOQ as DIC
+
+```{r}
+SA_LOQ_DIC <- inverse.predict(object = DIClm, newdata = SA_LOQ, alpha = 0.5)$Prediction
+
+SA_LOQ_DIC
+
+paste0("The limit of [DIC] quantification for this run is ", round(SA_LOQ_DIC, 2), " uM")
+```
+
+
+Now we'll apply the LOQ to our data to determine which samples have quantifiable area
+
+```{r}
+# data <- data %>% 
+#   mutate(
+#     LOQ = case_when(
+#       area44 > SA_LOQ
+#     )
+#   )
+```
+
+
+
 ## Mass loaded calculation
 
 Here, we generate a linear model of peak area `area44` versus the mass of $CaCO_3$ loaded. We then apply this model to the peak areas of our saples in order to calculate the equivalent [DIC] in micromolar (uM).
@@ -1106,74 +1197,94 @@ MM_CaCO3 <- 100.0869 # the molecular weight of CaCO3 in g/mol
 vol_H2O_sample_ml <- 1 # the volume of the liquid sample in the exetainer (CHANGE IF DIFFERENT VOLUME USED!) 
 
 # Remove problematic standards from our set of linear standards (defined earlier as linC)
-linC <- linC %>% 
-  filter(!Analysis %in% c("26752", "26753"))
+standards_for_lm <- data %>%
+  filter(Identifier1 %in% c("IAEA-603", "USGS44", "CU YULE", "blank_water_1", "blank_water_2")) %>%
+  filter(!Analysis %in% c("26752", "26751", "26801", "26802")) # remove problematic runs
 
 # Calculate the moles of CO2 expected when acidifying
 # here, mass is the mass of CaCO3 standard weighed out in ug (vonverted to g by 1e-6)
-linC <- linC %>% mutate(mol_CO2_total_expected = mass * 1e-6 / MM_CaCO3) # add column for total moles CO2 expected
+standards_for_lm <- standards_for_lm %>% mutate(mol_CO2_total_expected = mass * 1e-6 / MM_CaCO3) # add column for total moles CO2 expected
 
 # Calculate [DIC] of initial water sample by dividing total moles CO2 by volume of water
 # [DIC] is calculated first as molar (M) --> moles / L (where mL to L is *1e-3)
 # We then multiply by 1e6 to convert M to uM:
-linC <- linC %>% mutate(DIC_uM = mol_CO2_total_expected / (vol_H2O_sample_ml * 1e-3) * 1e6)
+standards_for_lm <- standards_for_lm %>% mutate(DIC_uM = mol_CO2_total_expected / (vol_H2O_sample_ml * 1e-3) * 1e6)
+
+
 
 # Now we calculate a linear model of calculated DIC versus area of our standards:
 # y ~ x (dependent ~ independent)
-DIClm <- lm(data = linC, DIC_uM ~ area44)
-DIC_lm_tidy <- broom::tidy(DIClm) # tidy up the linear model using broom: creates a tibble of fit params
-DIClm_slope <- DIC_lm_tidy %>% filter(term == "area44") %>% pull(estimate)
-DIClm_yint <- DIC_lm_tidy %>% filter(term == "(Intercept)") %>% pull(estimate)
+DIClm <- lm(data = standards_for_lm, area44 ~ DIC_uM)
+
+# Extract the method parameters
+DIClm_tidy <- broom::tidy(DIClm) # tidy up the linear model using broom: creates a tibble of fit params
+DIClm_slope <- DIClm_tidy %>% filter(term == "DIC_uM") %>% pull(estimate)
+#DIClm_yint <- DIClm_tidy %>% filter(term == "(Intercept)") %>% pull(estimate)
+DIClm_yint <- S_mb # use mean of the method blanks as y intercept
+
+# Coerce the lm to use S_mb (careful!)
+DIClm$coefficients[1] <- DIClm_yint
 
 
 calib_DIC_4  <- 
-  ggplot(linC, aes(y=DIC_uM, x=area44)) +
-  geom_smooth(method="lm", color = "blue") +
-  geom_point(shape=21, fill="black", size = 2)+
-  geom_smooth(method = "lm", formula = "y~x") +
- scale_y_continuous(name = latex2exp::TeX("estimated $\\lbrack$$\\Sigma$CO$_2$$\\rbrack$ (µM)"))+
- scale_x_continuous(name = latex2exp::TeX("area44 (Vs)"))+
-  labs(
-    caption = paste0("y = ", DIClm_slope, "x + ", DIClm_yint)
-  ) +
+  ggplot(standards_for_lm, aes(x = DIC_uM, y = area44)) +
+  geom_point(aes(color = Identifier1, fill = Identifier1), shape=21, size = 2)+
+  geom_abline(slope = DIClm_slope, intercept = DIClm_yint, color = "blue") +
+ #scale_y_continuous(name = latex2exp::TeX("estimated $\\lbrack$$\\Sigma$CO$_2$$\\rbrack$ (µM)"))+
+ #scale_x_continuous(name = latex2exp::TeX("area44 (Vs)"))+
+  labs() +
   theme_bw()
 
 calib_DIC_4
+# 
+# # make interactive plot
+# calib_DIC_5  <- 
+#   ggplot(standards_for_lm, aes(y=DIC_uM, x=area44, label=Analysis))+
+#   geom_point()+
+# theme_bw()
+# 
+# calib_DIC_5 %>% ggplotly()
+```
 
-# make interactive plot
-calib_DIC_5  <- 
-  ggplot(linC, aes(y=DIC_uM, x=area44, label=Analysis))+
-  geom_point()+
-theme_bw()
+Now we apply the calibration to our samples:
 
-calib_DIC_5 %>% ggplotly()
-
+```{r}
 
 # here we use inverse.predict function from chemCal to predict X based on Y
 # object: the linear model we generated above
 data <- data %>%
   mutate(
-    DICuM = as.numeric(
-      inverse.predict(
-        object = DIClm,
-        newdata = area44,
-        alpha = 0.5
-        )
-      )
+     # this pulls out the `Prediction` term from inverse.predict list object. Alpha = error tolerance (95% CI)
+    DIC_uM = as.numeric(inverse.predict(object = DIClm, newdata = area44, alpha = 0.5)$Prediction),
+     # this pulls out the `Standard Error` term from inverse.predict list object
+    DIC_uM_95CI = as.numeric(inverse.predict(object = DIClm, newdata = area44, alpha = 0.5)$`Standard Error`),
     )
 
 data %>% 
+  filter(Identifier1 != "IAEA-C2", type == "sample") %>%
+  mutate(well = case_when(
+    str_detect(Identifier1, "BA3A") ~ "BA3A",
+    str_detect(Identifier1, "BA4A") ~ "BA4A",
+    str_detect(Identifier1, "BA1B") ~ "BA1B",
+    str_detect(Identifier1, "BA1D") ~ "BAID"
+    )
+  ) %>% 
   ggplot(
     aes(
       x = area44,
-      y = DICuM
+      y = DIC_uM,
+      label = Identifier1,
+      color = well
     )
   ) +
-  geom_point() +
+  geom_vline(xintercept = SA_LOQ, color = "red") +
+  annotate(geom = "text", label = "LOQ", x = 3, y = 4200, color = "red") +
   geom_smooth(
     method = "lm",
     formula = "y~x"
   ) +
+  geom_point() +
+  geom_errorbar(aes(ymin = DIC_uM - DIC_uM_95CI, ymax = DIC_uM + DIC_uM_95CI)) +
   labs(
     title = "[DIC] (uM) of samples"
   ) +

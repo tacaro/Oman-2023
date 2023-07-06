@@ -30,18 +30,62 @@ gc_data <- bind_rows(gc_data0, gc_data1) |>
   ))
 ```
 
+## Add t0 data
+
 ```{r}
+t0 <- tibble(
+  well = c("BA3A", "BA4A", "BA1B")
+) |> 
+  crossing(
+    depth = c(20, 150, 270),
+    amendment = c("Bicarbonate", "Formate", "Acetate"),
+    gas = c("CH4", "CO2")
+  ) |> 
+  mutate(
+    depth = case_when(
+      depth == 270 & well == "BA1B" ~ 250,
+      TRUE ~ depth
+    )
+  ) |> 
+  mutate(nmol_per_ml = 0,
+         dt = 0)
+
+gc_data <- gc_data |> bind_rows(t0)
+```
+
+# Plot
+
+```{r}
+amendment_palette <- c("#9c0000", "#004e9c", "#003b09")
+
 gc_data |> 
-  filter(gas == "CH4") |> 
+  filter(gas == "CO2") |> 
   ggplot(
     aes(x = dt,
         y = nmol_per_ml,
-        color = as.factor(depth),
-        shape = well,
-        linetype = well
+        color = amendment,
+        shape = amendment,
+        linetype = amendment
         )
   ) +
   geom_point() +
   geom_line() +
-  facet_wrap(vars(amendment))
+  facet_wrap(vars(well, depth), scales = "free_y") +
+  scale_color_manual(values = amendment_palette) +
+  #scale_x_continuous(breaks = c(0, 30, 60, 120)) +
+  theme_bw() +
+  labs(
+    x = "Incubation time (days)",
+    y = latex2exp::TeX("nmol $CH_4$ $ml^{-1}$")
+  ) +
+  theme(
+    strip.background = element_rect(fill = "#e3e3e3", color = NA),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_blank(),
+    strip.background.x = element_rect(fill = "black"),
+    strip.text = element_text(color = "white"),
+    panel.border = element_rect(linewidth = 1.2, color = "black"),
+    axis.ticks.x = element_blank(),
+    #legend.position = "None"
+    )
 ```
