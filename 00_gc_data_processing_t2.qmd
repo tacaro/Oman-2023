@@ -87,7 +87,7 @@ def read_GC_RES_file(file_name):
 # EXECUTE
 
 # If GC data is not in this directory, change this string!
-GC_file_directory = "data/gc_data/1jun23/" 
+GC_file_directory = "data/gc_data/2023-06-01/" 
 GC_files = [f for f in os.listdir(GC_file_directory) if f.endswith(".RES") and "FID" in f]
 
 appended_data = []
@@ -103,7 +103,7 @@ appended_data = pd.concat(appended_data)
 appended_data.to_csv("data/GC_Data_Table2.csv")
 
 # close the current python session
-quit
+#quit
 ```
 
 ## Load data
@@ -233,16 +233,13 @@ samples |>
   )
 ```
 
-
 # Generate standard curves
 
 Here we calculate the number of moles injected in our standard curve as follows:
 
 $$
 n = \frac{PV}{RT}
-$$
-where n is the number of moles, P is pressure in `atm`, V is volume in `mL`, R is the gas constant $R = 0.082057338 \space L\cdot atm \cdot K^{-1} mol^{-1}$.
-
+$$ where n is the number of moles, P is pressure in `atm`, V is volume in `mL`, R is the gas constant $R = 0.082057338 \space L\cdot atm \cdot K^{-1} mol^{-1}$.
 
 We calculate the number of moles per mL of gas, then the number of µg per mL of gas. The MW of $CH_4$ is 16.04 g/mol. The MW of CO2 is 44.01 g/mol.
 
@@ -252,7 +249,6 @@ g/mL &= mol * MW \\
 µg/mL &= g/mL * (1e^-6)
 \end{aligned}
 $$
-
 
 ```{r}
 volume_to_moles <- function(pressure_atm = 0.8, vol_mL, R = 0.082057338	, temp_C = 20) {
@@ -290,7 +286,7 @@ CH4_curve_slope <- CH4_curve_fit |> pull(nmol_specific)
 CH4_curve_int <- CH4_curve_fit |> pull(`(Intercept)`)
 CH4_curve_equation <- paste("y =", round(CH4_curve_slope, 2), "x", "+", round(CH4_curve_int, 2))
 
-`CO2_curve_fit <- lm(data = filter(gc_standard_curve, gas == "CO2"), peak_area ~ nmol_specific) |> 
+`CO2_curve_fit` <- lm(data = filter(gc_standard_curve, gas == "CO2"), peak_area ~ nmol_specific) |> 
   broom::tidy() |> 
   mutate(gas = "CO2") |> 
   select(-c(std.error, statistic, p.value)) |> 
@@ -348,6 +344,7 @@ peak_area_to_pressure(25000, vol_mL = 0.5, slope = CO2_curve_slope, intercept = 
 ```
 
 ### Examine standard curve
+
 ```{r}
 gc_standard_curve |> 
   ggplot(aes(
@@ -364,8 +361,6 @@ gc_standard_curve |>
     y = "Peak Area"
   )
 ```
-
-
 
 ```{r}
 # define molecular weights of CO2 and methane
@@ -406,10 +401,8 @@ gc_samples_processed <- samples |>
   )
 ```
 
-
 # Export and cache
 
 ```{r}
 saveRDS(object = gc_samples_processed, file = "cache/gc_samples1.RDS")
 ```
-
