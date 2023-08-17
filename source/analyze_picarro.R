@@ -1,29 +1,43 @@
 library(dplyr)
+library(tidyverse)
 
-# Sample data for dataframe A
-A <- data.frame(
-  datetime = ymd_hms(c("2023-08-11 12:30:00", "2023-08-11 15:00:00", "2023-08-11 18:45:00"))
+# the data
+data <- tribble(~datetime,    ~numeric_data,
+                "2009-04-06",   1234,
+                "2013-05-11",   45148,
+                "2015-11-01",   7771,
+                "2020-01-02",   -1304
 )
 
-# Sample data for dataframe B
-B <- data.frame(
-  id = c(1, 2, 3),
-  datetime_start = ymd_hms(c("2023-08-11 12:00:00", "2023-08-11 14:00:00", "2023-08-11 18:00:00")),
-  datetime_end = ymd_hms(c("2023-08-11 14:00:00", "2023-08-11 16:00:00", "2023-08-11 19:00:00"))
+
+# a sample map
+map <- tribble(~sample_id, ~start_datetime,   ~end_datetime,
+               "A",      "2007-09-11",     "2010-04-06",
+               "B",      "2014-08-29",     "2016-01-01",
+               "C",      "2019-04-01",     "2021-01-01")
+
+
+# the desired output
+desired_df <- tribble(~datetime,    ~sample_id, ~is_in_interval, ~numeric_data,
+                      "2009-04-06",  "A",        TRUE,            1234,
+                      "2013-05-11",  NA,         FALSE,           45148,
+                      "2015-11-01",  "B",        TRUE,            7771,
+                      "2020-01-02",  "C",        TRUE,            -1304
 )
 
-# Perform a left join and create a new dataframe with the desired structure
-result <- A %>%
-  mutate(id = NA_integer_) %>%  # Initialize the id column with NAs
-  left_join(B, by = character(0)) |> 
-  mutate(id = if_else(
-    datetime >= datetime_start && datetime <= datetime_end,
-    true = id.y,
-    false = NA_integer_
+
+desired <- data |> left_join(map, by = "sample_id") |> 
+  mutate(sample_id = if_else(
+    between(datetime, start_datetime, end_datetime),
+    true = sample_id,
+    false = NA
   ))
 
+df3 <- df1 %>% left_join(df2, by = "ID") %>% 
+  mutate(employed = between(TAX_YEAR_END_DATE, START_DATE, END_DATE)) %>% view()
+  group_by(ID, TAX_YEAR_END_DATE) %>% 
+  summarise(employed = any(employed))
 
-%>%  # Left join without common columns
-  mutate(id = if_else(between(datetime, datetime_start, datetime_end), id, NA_integer_))  # Update id based on datetime comparison
-  
-  print(result)
+df3
+
+ymd_hms("2009-04-06 01:13:29.012")
