@@ -93,7 +93,7 @@ gc_data_filtered |>
   filter(gas == "CH4") |> 
   ggplot(
     aes(x = dt,
-        y = nmol_per_ml,
+        y = peak_area,
         color = amendment,
         shape = amendment,
         linetype = amendment,
@@ -102,13 +102,13 @@ gc_data_filtered |>
   ) +
   geom_point() +
   geom_line() +
-  facet_wrap(vars(well, depth), scales = "free_y") +
+  facet_wrap(vars(well, depth)) +
   scale_color_manual(values = amendment_palette) +
   #scale_x_continuous(breaks = c(0, 30, 60, 120, 180)) +
   theme_bw() +
   labs(
     x = "Incubation time (days)",
-    y = latex2exp::TeX("nmol $CH_4$ $ml^{-1}$")
+    #y = latex2exp::TeX("nmol $CH_4$ $ml^{-1}$")
   ) +
   theme(
     strip.background = element_rect(fill = "#e3e3e3", color = NA),
