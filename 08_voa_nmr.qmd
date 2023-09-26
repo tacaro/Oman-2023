@@ -1,0 +1,176 @@
+---
+title: "NMR VOA Analysis"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+### Setup
+
+#### Libraries
+
+```{r}
+library(tidyverse)
+```
+
+#### Import Data
+
+```{r}
+path <-  "data/PNNL_NMR/voa_raw_data/TCaro_SKashyap_Aug2023_Test_samples_NMR_uncorrected_concentrations_09032023.xlsx"
+
+# import metadata
+mtda <- readxl::read_excel(path = "data/PNNL_NMR/site_metadata.xlsx")
+
+voa <- readxl::read_excel(
+  path, 
+  sheet = 1, 
+  skip = 4
+  ) |> 
+  dplyr::slice(5:16) |> 
+  rename(
+    compound = `...1`
+  ) |> 
+  select(-c(`CAS Registry`, `KEGG Compound ID`, `HMDB Accession Number`, `PubChem Compound`, `Formula`, `Weight`, `Author`)) |> 
+  mutate_at(vars(-compound), as.numeric) |> 
+  pivot_longer(cols = -compound,
+               values_to = "uM",
+               names_to = "raw_id")
+
+voa_ids <- readxl::read_excel(path = "data/PNNL_NMR/voa_data_ids.xlsx")
+
+voa_joined <- voa |> 
+  left_join(voa_ids, by = "raw_id") |> 
+  select(-raw_id) |> 
+  filter(!is.na(sample_id))
+
+voa_sds <- readxl::read_excel(
+  path,
+  sheet = 2,
+  skip = 2
+  ) |> 
+  rename(
+    compound = `...1`
+  ) |> 
+  slice(5:n()) |> 
+  select(-c(`CAS Registry`, `KEGG Compound ID`, `HMDB Accession Number`, `PubChem Compound`, `Formula`, `Weight`, `Author`)) |> 
+  mutate_at(vars(-compound), as.numeric) |> 
+  pivot_longer(cols = -compound,
+               values_to = "uM_sd",
+               names_to = "raw_id") |> 
+  left_join(voa_ids, by = "raw_id") |> 
+  select(-raw_id) |> 
+  filter(compound != "DSS-d6 (Chemical Shape Indicator)")
+
+
+voa_full <- voa_joined |> 
+  left_join(voa_sds, by = c("sample_id", "compound")) |> 
+  select(sample_id, compound, uM, uM_sd) |> 
+  # join the metadata
+  left_join(mtda, by = "sample_id") |> 
+  mutate(well = case_when(
+    is.na(well) ~ "control",
+    TRUE ~ well),
+    depth = case_when(
+      is.na(depth) ~ 0,
+      TRUE ~ depth
+      )
+    ) |>
+  # factor to the order we want
+  group_by(well) |> 
+  mutate(sample_id = fct_reorder(.f = sample_id, .x = depth)) |> 
+  ungroup() |> 
+  # add control boolean
+  mutate(is_control = if_else(
+    str_detect(sample_id, "blank"),
+    true = TRUE,
+    false = FALSE
+  ))
+```
+
+### Summarize the controls and apply corrections
+
+```{r}
+# samples were diluted 9:1 (900ul sample, 100ul standard)
+dilution_correction <- 1.1
+
+voa_corrected <- voa_full |> 
+  mutate(uM_corr = uM * dilution_correction)
+
+voa_ctl <- voa_corrected |> 
+  filter(is_control) |> 
+  group_by(compound) |> 
+  summarize(ctl_uM = mean(uM_corr),
+            ctl_uM_sd = sd(uM_corr))
+
+voa_corrected_ctl <- voa_corrected |> 
+  left_join(voa_ctl, by = "compound")
+```
+
+### Plot it
+
+```{r}
+
+well_palette <- c("#207596", "#2c5e43", "#0b9e4d", "#000000")
+
+p_voa <- voa_corrected_ctl |> 
+  ggplot(
+    aes(
+      x = sample_id,
+      y = uM_corr,
+      shape = is_control,
+      color = well
+      )
+  ) +
+  annotation_logticks(sides = "l") +
+  geom_hline(
+    aes(
+      yintercept = ctl_uM,
+      group = compound),
+    color = "red",
+    linetype = "dashed"
+    ) +
+  # geom_rect(
+  #   aes(
+  #     xmin = -Inf,
+  #     xmax = Inf,
+  #     ymin = ctl_uM - ctl_uM_sd,
+  #     ymax = ctl_uM + ctl_uM_sd,
+  #     group = compound
+  #   ),
+  #   fill = "red",
+  #   alpha = 0.25
+  # ) +
+  geom_point(size = 2) +
+  geom_pointrange(
+    aes(ymin = uM - uM_sd,
+        ymax = uM + uM_sd)
+  ) +
+  facet_wrap(vars(compound)) +
+  scale_color_manual(values = well_palette) +
+  scale_y_log10(
+   breaks = c(1e-1, 1e0, 1e1, 1e2, 1e3),
+   labels = scales::trans_format("log10", scales::math_format(10^.x))
+ ) +
+  coord_cartesian(xlim = c(-1, 14)) +
+  theme_bw() +
+  labs(
+    x = "",
+    y = "Concentration (µM)",
+    title = "OM23 SMW Organics",
+    caption = "Source: EMSL NMR Facility",
+  ) +
+  theme(
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.y = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.background = element_rect(fill = "black"),
+    strip.text = element_text(color = "white")
+  )
+p_voa
+
+cowplot::save_plot(plot = p_voa, filename = "fig_output/voa_data.pdf",
+                   base_height = 10, base_width = 12)
+```

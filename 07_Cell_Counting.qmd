@@ -1,0 +1,269 @@
+---
+title: "Cell Counting"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+## Import Libraries
+
+```{r}
+library(tidyverse)
+```
+
+## Import data
+
+```{r}
+cell_counts <- readxl::read_excel("data/Nikon-Widefield/cell_counts.xlsx") |> 
+  # Create a site column for grouping
+  mutate(site = paste0(well, "-", depth))
+```
+
+## Calculate cell concentrations
+
+```{r}
+calculate_cells <- function(C_C, F_C, A_T, A_F, S = 1) {
+  # C_C: cells counted, F_C: Number of FOVs, A_T: Surface area of filter
+  # A_F: Surface area of FOV, S: sample volume filtered (1 mL)
+  return(
+    (C_C / F_C) * A_T * (A_F / S)
+  )
+}
+```
+
+The total abundance of cells per mL is equal to:
+
+$$
+C_T = \frac{\frac{C_C}{F_C} \cdot \frac{A_F}{A_T}}{S}
+$$
+
+where:
+
+-   $C_T$ : Total cells per volume filtered (in our case, cells/mL)
+
+-   $C_C$ : Total cells counted across all FOVs
+
+-   $F_C$ : Number of FOVs counted
+
+-   $A_T$ Surface area of filter ($µm^2$)
+
+-   $A_F$ : Surface area of the FOV ($µm^2$)
+
+-   S : Sample volume filtered (mL) (in our case, 1 mL)
+
+NOTE: For a 25mm anodisc filter, the diameter of the filter inside the plastic ring (countable area) is 19mm (area = 283,528,737 $µm^2$)
+
+The total number of particles counted will determine the size of the 95% confidence interval (CI) on the estimates of viral abundance. By assuming a poisson distribution the 95% CI can be estimated by using the following equations (Suttle 1993):
+
+$$
+Upper \space 95\% = V_C + 1.96 \cdot (\sqrt{(V_C + 1.5)} + 2.42)
+$$ $$
+Lower \space 95\% = V_C - 1.96 \cdot (\sqrt{(V_C + 0.5)} + 1.42)
+$$
+
+```{r}
+cell_counts_summarized <- cell_counts |> 
+  # tidy
+  select(filename, site, well, depth, count, everything()) |> 
+  group_by(site) |> 
+  summarize(count.sum = sum(count),
+            count.sd = sd(count)) |> 
+  mutate(n.FOV = 3)
+```
+
+```{r}
+calculate_cells <- function(C_C, F_C, A_T, A_F, S = 1) {
+  # C_C: cells counted, F_C: Number of FOVs, A_T: Surface area of filter
+  # A_F: Surface area of FOV, S: sample volume filtered (1 mL)
+  return(
+    ((C_C / F_C) * (A_T / A_F) / S)
+  )
+}
+
+upper95 <- function(C_C) {
+  return(
+    C_C + 1.96 * (sqrt(C_C + 1.5) +2.42)
+    )
+}
+
+lower95 <- function(C_C) {
+  C_C - 1.96 * (sqrt(C_C + 0.5) + 1.42)
+}
+
+FOV.area.um <- cell_counts |> select(`FOV.area.um^2`) |> unique() |> pull()
+
+mtda <- cell_counts |> 
+  select(c(site, well, depth)) |> unique()
+
+cell_concs <- cell_counts_summarized |> 
+  mutate(cells_per_ml = calculate_cells(
+      C_C = count.sum, # total counts
+      F_C = n.FOV, # 3 FOVs
+      A_T = 283528737, # area of the anodisc filter in um^2
+      A_F = FOV.area.um #107164 um^2
+    ),
+    upper_CI = cells_per_ml + upper95(C_C = count.sum),
+    lower_CI = cells_per_ml - lower95(C_C = count.sum)
+  ) |> 
+  left_join(mtda, by = "site")
+
+
+```
+
+```{r}
+well_palette <- c("#207596", "#2c5e43", "#0b9e4d")
+
+cell_concs |> 
+  group_by(well) |> 
+  mutate(site = fct_reorder(.f = site, .x = depth)) |> 
+  ungroup() |> 
+  ggplot(
+    aes(
+      x = site,
+      y = cells_per_ml,
+      fill = well,
+      color = well
+    )
+  ) +
+  geom_pointrange(
+    aes(
+      ymin = lower_CI,
+      ymax = upper_CI
+    )
+  ) +
+  scale_fill_manual(values = well_palette) +
+  scale_color_manual(values = well_palette) +
+ scale_y_log10(
+   breaks = c(1e4, 1e5, 1e6, 1e7),
+   labels = scales::trans_format("log10", scales::math_format(10^.x))
+ ) +
+  coord_cartesian(ylim = c(1e4, 1e7), xlim = c(0, 10)) +
+  annotation_logticks(sides = "lr") +
+  labs(
+    x = "",
+    y = latex2exp::TeX("$Cells \\cdot ml^{-1}$"),
+    color = "",
+    fill = "",
+    title = "OM23 Cell Counts"
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid = element_blank()
+  )
+```
+
+```{r}
+# different kind of plot
+p_cell_concs <- cell_concs |> 
+  group_by(well) |> 
+  mutate(site = fct_reorder(.f = site, .x = depth)) |> 
+  arrange(depth) |> 
+  ungroup() |> 
+  ggplot(
+    aes(
+      x = cells_per_ml,
+      y = depth,
+      fill = well
+    )
+  ) +
+    geom_path(
+    aes(color = well)
+  ) +
+  geom_point(
+    shape = 21,
+    color = "black",
+    size = 4,
+    stroke = 1
+  ) +
+  facet_grid(.~well) +
+  scale_fill_manual(values = well_palette) +
+  scale_color_manual(values = well_palette) +
+  scale_y_reverse() +
+  scale_x_log10(
+   breaks = c(1e4, 1e5, 1e6, 1e7),
+   labels = scales::trans_format(
+     "log10", scales::math_format(10^.x))
+ ) +
+  annotation_logticks(sides = "b") +
+  coord_cartesian(ylim = c(300, 0), xlim = c(5e4, 1e7)) +
+  labs(
+    x = latex2exp::TeX("$Cells \\cdot ml^{-1}$"),
+    y = "Depth (m)",
+    fill = "",
+    color = ""
+  ) +
+  theme_bw() +
+  theme(
+    strip.background = element_rect(fill = "black"),
+    strip.text = element_text(color = "white", face = "bold"),
+    axis.text = element_text(face = "bold", color = "black"),
+    panel.grid.minor = element_blank(),
+    legend.position = "None"
+  )
+p_cell_concs
+
+cowplot::save_plot(
+  filename = "fig_output/cell_concentrations.pdf",
+  plot = p_cell_concs,
+  base_height = 4,
+  base_width = 9
+)
+```
+
+```{r}
+cell_counts2 <- cell_counts
+cell_concs2 <- cell_counts2 |> 
+    mutate(
+      cells_per_ml = calculate_cells(
+        C_C = count, # total counts
+        F_C = 1, # 1 FOV
+        A_T = 283528737, # area of the anodisc filter in um^2
+        A_F = FOV.area.um #107164 um^2
+    ),
+  ) |> 
+  group_by(well, depth) |> 
+  mutate(cells_per_ml_mn = mean(cells_per_ml),
+            cells_per_ml_sd = sd(cells_per_ml)) |> 
+  ungroup()
+
+cell_concs2 |> 
+  group_by(well) |> 
+  mutate(site = fct_reorder(.f = site, .x = depth)) |> 
+  ungroup() |> 
+  ggplot(
+    aes(
+      x = site,
+      y = cells_per_ml_mn,
+      fill = well,
+      color = well
+    )
+  ) +
+  geom_pointrange(
+    aes(
+      ymin = cells_per_ml - cells_per_ml_sd,
+      ymax = cells_per_ml + cells_per_ml_sd
+    )
+  ) +
+  scale_fill_manual(values = well_palette) +
+  scale_color_manual(values = well_palette) +
+ scale_y_log10(
+   breaks = c(1e4, 1e5, 1e6, 1e7),
+   labels = scales::trans_format("log10", scales::math_format(10^.x))
+ ) +
+  coord_cartesian(ylim = c(1e4, 1e7), xlim = c(0, 10)) +
+  annotation_logticks(sides = "lr") +
+  labs(
+    x = "",
+    y = latex2exp::TeX("$Cells \\cdot ml^{-1}$"),
+    color = "",
+    fill = "",
+    title = "OM23 Cell Counts"
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid = element_blank()
+  )
+```
