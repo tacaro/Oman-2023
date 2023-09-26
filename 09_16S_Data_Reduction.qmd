@@ -1,26 +1,125 @@
 ---
 title: "16S Data Reduction"
 format: html
+    toc: true
+    toc_depth: 4
+    number-sections: true
+    number-depth: 4
 editor: visual
+editor_options: 
+  chunk_output_type: console
 ---
 
-## Quarto
+## Setup
 
-Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
-
-## Running Code
-
-When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+Install DADA2 & other necessary packages. If this is your first time on Rstudio server, when you install a package you might get a prompt asking if you want to create your own library. Answer 'yes' twice in the console to continue.
 
 ```{r}
-1 + 1
+# Install DADA2
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("dada2", version = "3.17")
+
+source("https://bioconductor.org/biocLite.R")
+# install other packages
+biocLite("ShortRead")
+install.packages("dplyr")
+install.packages("tidyr")
+install.packages("Hmisc")
+install.packages("ggplot2")
+install.packages("plotly")
 ```
 
-You can add options to executable code like this
+Clear the environment:
 
 ```{r}
-#| echo: false
-2 * 2
+rm(list = ls())
 ```
 
-The `echo: false` option disables the printing of code (only output is displayed).
+Load DADA2 and the required packages:
+
+```{r}
+library(dada2); packageVersion("dada2") # the dada2 pipeline
+library(ShortRead); packageVersion("ShortRead") # dada2 depends on this
+library(dplyr); packageVersion("dplyr") # for manipulating data
+library(tidyr); packageVersion("tidyr") # for creating the final graph at the end of the pipeline
+library(Hmisc); packageVersion("Hmisc") # for creating the final graph at the end of the pipeline
+library(ggplot2); packageVersion("ggplot2") # for creating the final graph at the end of the pipeline
+library(plotly); packageVersion("plotly") # enables creation of interactive graphs, especially helpful for quality plots
+
+```
+
+Once the packages are installed, you can check to make sure the auxillary software is working and set up some of the variables that you will need along the way.
+
+Set path to [idemp](https://github.com/yhwu/idemp) (demultiplexing tool) and check:
+
+```{r}
+idemp <- "/Users/tacaro/Documents/GitHub/idemp/idemp" # CHANGE ME to location of idemp (not the directory, the program)
+system2(idemp) # Check that idemp is in your path and you can run shell commands from R
+
+```
+
+If not already, install [cutadapt](https://cutadapt.readthedocs.io/en/stable/installation.html). Then set path to cutadapt and check:
+
+```{r}
+cutadapt <- "/Users/tacaro/miniconda3/envs/cutadaptenv/bin/cutadapt" # CHANGE ME if not on microbe
+system2(cutadapt, args = "--version") # Check by running shell command from R
+```
+
+Set data path:
+
+```{r}
+# Set path to shared data folder and contents: do not append with /
+data.fp <- "data/16S/09.22.2023_SharedRun_16S"
+list.files(data.fp)
+
+```
+
+Set file paths for barcodes file, map file, and fastqs:
+
+```{r}
+# .txt file: barcode </t> sampleID
+barcode.fp <- "data/16S/09.22.2023_SharedRun_16S/Caro_OM23_Barcodes.txt"
+map.fp <- NA
+I1.fp <- file.path(data.fp, "Undetermined_S0_L001_I1_001.fastq.gz") 
+R1.fp <- file.path(data.fp, "Undetermined_S0_L001_R1_001.fastq.gz") 
+R2.fp <- file.path(data.fp, "Undetermined_S0_L001_R2_001.fastq.gz") 
+```
+
+> **NOTE:** idemp relies on having a match in length between the index file and and the barcode sequences. Since the index file usually includes a extra linker basepair (making it 13bp long), you should append the barcode sequences with "N" to make sure each is 13bp long. If you are not sure of the length of index reads, check with the sequencing center. If your index reads are 12bp long, you do NOT need to add an "N".
+
+Set up subdirectories for organizational purposes:
+
+```{r}
+project.fp <- "/data/16S/outputs" # CHANGE ME to project directory; don't append with a "/"
+
+# Set up names of sub directories to stay organized
+preprocess.fp <- "data/16S/outputs/01_preprocess/"
+demultiplex.fp <- "data/16S/outputs/01_preprocess/demultiplexed/"
+filtN.fp <- "data/16S/outputs/01_preprocess/filtN/"
+trimmed.fp <- "data/16S/outputs/01_preprocess/trimmed/"
+filter.fp <- "data/16S/outputs/02_filter/"
+table.fp <- "data/16S/outputs/03_tabletax/"
+```
+
+## Preprocessing with DADA2: Demultiplex, remove seqs with Ns, cudadapt
+
+
+
+### Call the demultiplexing script
+
+Demultiplexing splits your reads out into separate files based on the barcodes associated with each sample.
+
+```{r}
+flags <- paste("-b", barcode.fp, 
+               "-I1", I1.fp, 
+               "-R1", R1.fp, 
+               "-R2", R2.fp, 
+               "-o", demultiplex.fp
+               ) 
+
+system2(idemp, args = flags) 
+
+
+
+```
