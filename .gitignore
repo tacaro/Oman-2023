@@ -7,3 +7,5 @@
 .DS_Store
 *.pper
 data/.DS_Store
+data/Nikon-Widefield/*
+Data/16S/*
