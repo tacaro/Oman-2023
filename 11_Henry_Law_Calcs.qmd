@@ -1,0 +1,42 @@
+---
+title: "Henry's Law Calculations"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+# Setup
+
+```{r}
+library(tidyverse)
+```
+
+# Calculations
+
+Henry's law is given by
+
+$$
+C = kP
+$$
+
+where $C$ is the concentration of a dissolved gas, $k$ is Henry's law constant for that gas, and $P$ is the partial pressure of this gas.
+
+Our OM23 incubations were set to 2 atm of pure molecular hydrgoen $H_2$.
+
+```{r}
+# Define a Henry's law function
+# where P is partial pressure
+calculate_conc <- function(k, P) {
+  return(k*P)
+}
+```
+
+Henry's law for H2 in water at 25C is $8.13 \times 10^{-4}$ M\\atm.
+
+```{r}
+h2_h_m_atm <- 8.13E-4
+h2.M <- calculate_conc(k = h2_h_m_atm, P = 2)
+
+h2_um <- h2.M * 1000
+```
