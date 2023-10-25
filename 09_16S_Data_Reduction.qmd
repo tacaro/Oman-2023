@@ -108,7 +108,6 @@ table.fp <- "data/16S/outputs/03_tabletax"
 
 ## Preprocessing with DADA2: Demultiplex, remove seqs with Ns, cudadapt
 
-
 ### Call the demultiplexing script
 
 Demultiplexing splits your reads out into separate files based on the barcodes associated with each sample.
@@ -171,6 +170,7 @@ fnRs <- sort(list.files(demultiplex.fp, pattern="R2_", full.names = TRUE))
 ```
 
 #### Pre-filter to remove sequence reads with Ns
+
 Ambiguous bases will make it difficult for cutadapt to find short primer sequences in the reads. To solve this problem, we will remove sequences with ambiguous bases (Ns).
 
 > NOTE: Note: The multithread = TRUE setting can sometimes generate an error (names not equal). If this occurs, try rerunning the function. The error normally does not occur the second time.
@@ -220,8 +220,7 @@ primerHits <- function(primer, fn) {
 }
 ```
 
-Before we run cutadapt, we'll look at primer detection for the first sample as a check.
-There may be some primers here, we will remove them below using cutadapt.
+Before we run cutadapt, we'll look at primer detection for the first sample as a check. There may be some primers here, we will remove them below using cutadapt.
 
 ```{r}
 rbind(FWD.ForwardReads = sapply(FWD.orients, primerHits, fn = fnFs.filtN[[1]]), 
@@ -266,14 +265,13 @@ rbind(FWD.ForwardReads = sapply(FWD.orients, primerHits, fn = fnFs.cut[[1]]),
 
 ```
 
-```
+```         
                  Forward Complement Reverse RevComp
 FWD.ForwardReads       0          0       0       0
 FWD.ReverseReads       0          0       0       0
 REV.ForwardReads       0          0       0       0
 REV.ReverseReads       0          0       0       0
 ```
-
 
 ## Start the DADA2 pipeline
 
@@ -312,7 +310,7 @@ You will want to change this depending on run chemistry and quality. For 2x250 b
 
 From dada2 tutorial:
 
-> If there is only one part of any amplicon bioinformatics workflow on which you spend time considering the parameters, it should be filtering! The parameters ... are not set in stone, and should be changed if they don’t work for your data. If too few reads are passing the filter, increase maxEE and/or reduce truncQ. If quality drops sharply at the end of your reads, reduce truncLen. If your reads are high quality and you want to reduce computation time in the sample inference step, reduce maxEE.
+> If there is only one part of any amplicon bioinformatics workflow on which you spend time considering the parameters, it should be filtering! The parameters ... are not set in stone, and should be changed if they don't work for your data. If too few reads are passing the filter, increase maxEE and/or reduce truncQ. If quality drops sharply at the end of your reads, reduce truncLen. If your reads are high quality and you want to reduce computation time in the sample inference step, reduce maxEE.
 
 #### Inspect read quality profiles
 
@@ -341,12 +339,14 @@ rev_qual_plots
 ```
 
 Interactive plots:
+
 ```{r}
 ggplotly(fwd_qual_plots)
 ggplotly(rev_qual_plots)
 ```
 
 Save the plots to the disk:
+
 ```{r}
 # write plots to disk
 saveRDS(fwd_qual_plots, paste0(filter.fp, "/fwd_qual_plots.rds"))
@@ -381,7 +381,6 @@ filt_out <- filterAndTrim(
 head(filt_out)
 
 ```
-
 
 summary of samples in filt_out by percentage:
 
@@ -461,7 +460,6 @@ set.seed(100) # set seed to ensure that randomized steps are replicatable
 errF <- learnErrors(filtFs, nbases = 1e8, multithread = TRUE, randomize = TRUE)
 ```
 
-
 ```{r}
 # Learn reverse error rates
 errR <- learnErrors(filtRs, nbases = 1e8, multithread = TRUE, randomize = TRUE)
@@ -469,7 +467,7 @@ errR <- learnErrors(filtRs, nbases = 1e8, multithread = TRUE, randomize = TRUE)
 
 ### Plot Error Rates
 
-We want to make sure that the machine learning algorithm is learning the error rates properly. In the plots below, the red line represents what we should expect the learned error rates to look like for each of the 16 possible base transitions (A->A, A->C, A->G, etc.) and the black line and grey dots represent what the observed error rates are. If the black line and the red lines are very far off from each other, it may be a good idea to increase the `nbases` parameter. This allows the machine learning algorithm to train on a larger portion of your data and may help improve the fit.
+We want to make sure that the machine learning algorithm is learning the error rates properly. In the plots below, the red line represents what we should expect the learned error rates to look like for each of the 16 possible base transitions (A-\>A, A-\>C, A-\>G, etc.) and the black line and grey dots represent what the observed error rates are. If the black line and the red lines are very far off from each other, it may be a good idea to increase the `nbases` parameter. This allows the machine learning algorithm to train on a larger portion of your data and may help improve the fit.
 
 ```{r}
 errF_plot <- plotErrors(errF, nominalQ = TRUE)
@@ -493,13 +491,11 @@ saveRDS(errR_plot, paste0(filtpathR, "/errR_plot.rds"))
 
 > We are now ready to apply the core sample inference algorithm to the filtered and trimmed sequence data.
 
-In this part of the pipeline, dada2 will make decisions about assigning sequences to ASVs (called "sequence inference"). There is a major parameter option in the core function dada() that changes how samples are handled during sequence inference. The parameter pool =  can be set to: pool = FALSE (default), pool = TRUE, or pool = psuedo. For details on parameter choice, please see below, and further information on this blogpost https://www.fiererlab.org/blog/archive-whats-in-a-number-estimating-microbial-richness-using-dada2, and explanation on the dada2 tutorial https://benjjneb.github.io/dada2/pool.html.
+In this part of the pipeline, dada2 will make decisions about assigning sequences to ASVs (called "sequence inference"). There is a major parameter option in the core function dada() that changes how samples are handled during sequence inference. The parameter pool = can be set to: pool = FALSE (default), pool = TRUE, or pool = psuedo. For details on parameter choice, please see below, and further information on this blogpost https://www.fiererlab.org/blog/archive-whats-in-a-number-estimating-microbial-richness-using-dada2, and explanation on the dada2 tutorial https://benjjneb.github.io/dada2/pool.html.
 
 **Details**
 
-`pool = FALSE`: Sequence information is not shared between samples. Fast processing time, less sensitivity to rare taxa.
-`pool = psuedo`: Sequence information is shared in a separate "prior" step. Intermediate processing time, intermediate sensitivity to rare taxa.
-`pool = TRUE`: Sequence information from all samples is pooled together. Slow processing time, most sensitivity to rare taxa.
+`pool = FALSE`: Sequence information is not shared between samples. Fast processing time, less sensitivity to rare taxa. `pool = psuedo`: Sequence information is shared in a separate "prior" step. Intermediate processing time, intermediate sensitivity to rare taxa. `pool = TRUE`: Sequence information from all samples is pooled together. Slow processing time, most sensitivity to rare taxa.
 
 We **will** be running a pooled analysis in order to have greater sensitivity towards rare taxa.
 
@@ -521,7 +517,7 @@ dadaR.p <- dada(derepR.p, err = errR, multithread = TRUE, pool = TRUE)
 names(dadaR.p) <- sample.names
 ```
 
-> We now merge the forward and reverse reads together to obtain the full denoised sequences. Merging is performed by aligning the denoised forward reads with the reverse-complement of the corresponding denoised reverse reads, and then constructing the merged “contig” sequences. By default, merged sequences are only output if the forward and reverse reads overlap by at least 12 bases, and are identical to each other in the overlap region (but these conditions can be changed via function arguments).
+> We now merge the forward and reverse reads together to obtain the full denoised sequences. Merging is performed by aligning the denoised forward reads with the reverse-complement of the corresponding denoised reverse reads, and then constructing the merged "contig" sequences. By default, merged sequences are only output if the forward and reverse reads overlap by at least 12 bases, and are identical to each other in the overlap region (but these conditions can be changed via function arguments).
 
 ```{r}
 # Merge reads together
@@ -538,14 +534,13 @@ dir.create(table.fp)
 saveRDS(seqtab, paste0(table.fp, "/seqtab.rds"))
 ```
 
-
 ### Track reads through pipeline
 
 ## Remove chimeras and assign taxonomy
 
 Although dada2 has searched for indel errors and subsitutions, there may still be chimeric sequences in our dataset (sequences that are derived from forward and reverse sequences from two different organisms becoming fused together during PCR and/or sequencing). To identify chimeras, we will search for rare sequence variants that can be reconstructed by combining left-hand and right-hand segments from two more abundant "parent" sequences. After removing chimeras, we will use a taxonomy database to train a classifer-algorithm to assign names to our sequence variants.
 
->The core dada method corrects substitution and indel errors, but chimeras remain. Fortunately, the accuracy of sequence variants after denoising makes identifying chimeric ASVs simpler than when dealing with fuzzy OTUs. Chimeric sequences are identified if they can be exactly reconstructed by combining a left-segment and a right-segment from two more abundant “parent” sequences.
+> The core dada method corrects substitution and indel errors, but chimeras remain. Fortunately, the accuracy of sequence variants after denoising makes identifying chimeric ASVs simpler than when dealing with fuzzy OTUs. Chimeric sequences are identified if they can be exactly reconstructed by combining a left-segment and a right-segment from two more abundant "parent" sequences.
 
 We will assign taxonomy with Silva db v138.1
 
@@ -642,20 +637,18 @@ write.table(tax, file = paste0(table.fp, "/tax_final.txt"),
 
 Summary of output files:
 
-1. seqtab_final.txt - A tab-delimited sequence-by-sample (i.e. OTU) table
-2. tax_final.txt - a tab-demilimited file showing the relationship between ASVs, ASV IDs, and their taxonomy
-3. seqtab_wTax_mctoolsr.txt - a tab-delimited file with ASVs as rows, samples as columns and the final column showing the taxonomy of the ASV ID
-4. repset.fasta - a fasta file with the representative sequence of each ASV. Fasta headers are the ASV ID and taxonomy string.
-
+1.  seqtab_final.txt - A tab-delimited sequence-by-sample (i.e. OTU) table
+2.  tax_final.txt - a tab-demilimited file showing the relationship between ASVs, ASV IDs, and their taxonomy
+3.  seqtab_wTax_mctoolsr.txt - a tab-delimited file with ASVs as rows, samples as columns and the final column showing the taxonomy of the ASV ID
+4.  repset.fasta - a fasta file with the representative sequence of each ASV. Fasta headers are the ASV ID and taxonomy string.
 
 ## Next steps
 
 You can now transfer over the output files onto your local computer. The table and taxonomy can be read into R with 'mctoolsr' package or another R package of your choosing.
 
-Post-pipeline considerations
-After following this pipeline, you will need to think about the following in downstream applications:
+Post-pipeline considerations After following this pipeline, you will need to think about the following in downstream applications:
 
-- Remove mitochondrial and chloroplast sequences
-- Remove reads assigned as eukaryotes
-- Remove reads that are unassigned at domain level
-- Normalize or rarefy your ASV table
+-   Remove mitochondrial and chloroplast sequences
+-   Remove reads assigned as eukaryotes
+-   Remove reads that are unassigned at domain level
+-   Normalize or rarefy your ASV table
