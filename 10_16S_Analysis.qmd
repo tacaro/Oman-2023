@@ -1,0 +1,608 @@
+---
+title: "16S Analysis"
+format:
+  html:
+    toc: true
+    fig-width: 12
+    fig-height: 8
+code-line-numbers: true
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+From `09_16S_Data_Reduction.qmd`, we have output caches and text files:
+
+Summary of output files:
+
+1.  `seqtab_final.txt` - A tab-delimited sequence-by-sample (i.e. OTU) table
+2.  `tax_final.txt` - a tab-demilimited file showing the relationship between ASVs, ASV IDs, and their taxonomy
+3.  `seqtab_wTax_mctoolsr.txt` - a tab-delimited file with ASVs as rows, samples as columns and the final column showing the taxonomy of the ASV ID
+4.  `repset.fasta` - a fasta file with the representative sequence of each ASV. Fasta headers are the ASV ID and taxonomy string.
+
+## Setup
+
+### Load packages
+
+```{r}
+#| echo: false
+
+
+# if (!require("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# BiocManager::install("phyloseq")
+# BiocManager::install("Biostrings")
+
+library(phyloseq)   # Bioconductor v1.44.0
+library(tidyverse)  # CRAN v2.0.0
+library(Biostrings) # Bioconductor v2.68.1
+library(decontam)   # Bioconductor v1.20.0
+library(microViz)   # v0.11.0 # [https://david-barnett.r-universe.dev::NA/NA] v0.11.0
+
+```
+
+### Load in 16S data
+
+```{r}
+taxtable <- read_rds("data/16S/outputs/03_tabletax/tax_final.rds") |> 
+  # convert to tibble
+  as_tibble() |> 
+  # fix column headers
+  mutate(ASV_id = paste("ASV", row_number(), sep = "_")) |> 
+  column_to_rownames("ASV_id") |> 
+  # convert back to a matrix
+  as.matrix()
+
+seq_tab <- read_delim("data/16S/outputs/03_tabletax/seqtab_final.txt") |> 
+  column_to_rownames("...1")
+
+
+```
+
+### Construct metadata files
+
+```{r}
+metadata <- seq_tab |> colnames() |> as_tibble() |> 
+  dplyr::rename("sample_id" = "value") |>
+  # parse well ID
+  mutate(
+    well = case_when(
+      str_detect(sample_id, "BA1B") ~ "BA1B",
+      str_detect(sample_id, "BA1D") ~ "BA1D",
+      str_detect(sample_id, "BA3A") ~ "BA3A",
+      str_detect(sample_id, "BA4A") ~ "BA4A",
+      TRUE ~ "BLANK"
+    ),
+    # is it a blank?
+    is_blank = if_else(
+      well == "BLANK",
+      true = TRUE,
+      false = FALSE
+    ),
+    # parse depth
+    depth = parse_number(str_extract(sample_id, "\\d{2,3}\\D")),
+    depth = if_else(
+      is_blank == TRUE,
+      true = NA,
+      false = depth
+    ),
+    # parse which experiment the sample is a part of
+    experiment = case_when(
+      str_detect(sample_id, "H2O") ~ "D2O-SIP",
+      str_detect(sample_id, "D2O") ~ "D2O-SIP",
+      str_detect(sample_id, "ENV") ~ "OM23 Field",
+      TRUE ~ "13C-SIP"
+    ),
+    amendment = case_when(
+      str_detect(sample_id, "ac") ~ "acetate",
+      str_detect(sample_id, "bic") ~ "bicarbonate",
+      str_detect(sample_id, "form") ~ "formate",
+      str_detect(sample_id, "ENV") ~ "pre-incubation",
+      str_detect(sample_id, "Acet") ~ "acetate",
+      str_detect(sample_id, "Form") ~ "formate",
+      str_detect(sample_id, "Bic") ~ "bicarbonate",
+      str_detect(sample_id, "D2O") ~ "D2O",
+      str_detect(sample_id, "H2O") ~ NA,
+    )
+  ) |> 
+  column_to_rownames("sample_id")
+
+# write the metadata to file
+writexl::write_xlsx(metadata, path = "data/sample_metadata_16S.xlsx")
+
+
+# Pull out the sample list in our ideal order:
+sample_list_ordered <- metadata |> 
+  rownames_to_column() |> 
+  as_tibble() |> 
+  arrange(well, depth, amendment, is_blank) |> 
+  select(rowname) |>
+  pull()
+
+sample_list_ordered_field <- metadata |> 
+  rownames_to_column() |> 
+  as_tibble() |> 
+  filter(amendment == "pre-incubation") |> 
+  arrange(well, depth, amendment, is_blank) |> 
+  select(rowname) |>
+  pull()
+```
+
+### Construct phyloseq components
+
+```{r}
+# convert the seq_tab file to an 'otu_table' phyloseq component
+asv_table <- phyloseq::otu_table(seq_tab, taxa_are_rows = TRUE)
+
+# convert the taxtable file to a 'TaxonomyTable' phyloseq component
+taxonomy_table <- phyloseq::tax_table(taxtable)
+
+# convert metadata into a 'sample_data' phyloseq component
+sample_vars <- phyloseq::sample_data(metadata)
+```
+
+### Construct phyloseq object of all samples
+
+```{r}
+ps <- phyloseq(asv_table, taxonomy_table, sample_vars)
+```
+
+## Decontam-ination
+
+Here we apply `decontam` package to remove contaminants detected in our negative controls.
+
+### Inspect library sizes
+
+First, let's take a look at library size (number of reads) in each sample as a funciton of whether that sample was a positive sample or a negative control.
+
+```{r}
+# Put sample_data into a ggplot-friendly data.frame
+df <- as.data.frame(sample_data(ps)) 
+
+# returns total number of individuals observed from each sample
+df$LibrarySize <- sample_sums(ps) 
+
+df <- df[order(df$LibrarySize),]
+df$Index <- seq(nrow(df)) # create a new column called Index that's a simple index val
+
+ggplot(data=df, aes(x=Index, y=LibrarySize, color=is_blank, label = rownames(df))) + geom_point() + theme_bw()
+
+# and do a plotly!
+plotly::ggplotly()
+```
+
+The library sizes of the positive samples range from low (hundreds of reads) to 60000 reads. There are some negative controls with plenty of reads and positive samples with few reads. There is one negative control "TAC-Inc-Filter-Blank-A" that corresponds to a blank filter that was used to assess contamination during filter sampling after incubation. However, most of these contaminants appear to be crossover from the other samples (ASVs 1-5). I do have a note in my notebook that I processed this blank *after* I cut out all of the other filters and removed them with tweezers: it is likely the tweezers were not sufficiently decontaminated with a simple ethanol wash. Luckily, the `decontam` package is sensitive to removing sample crossover. Overall, the blanks look really good. We shall proceed.
+
+### Identify contaminants: prevalence
+
+The contamination id method we'll use is the "prevalence" method. In this method, the prevalence (presence/absence across samples) of each sequence feature in true positive samples is compared to the prevalence in negative controls to identify contaminants.
+
+In our phyloseq object, `is_blank` is the sample variable that holds the negative control information. We'll summarize that data as a logical variable, with `TRUE` for controls, as this is the form required by the function `isContaminant`.
+
+```{r}
+contamdf.prev <- isContaminant(
+  ps, 
+  method = "prevalence",
+  neg = "is_blank", 
+  threshold = 0.1
+  )
+
+head(contamdf.prev)
+```
+
+```{r}
+table(contamdf.prev$contaminant)
+```
+
+Prevalence-based contaminant identification has identified a number of contaminants, 34.
+
+In the prevalence test there is a special value worth knowing, `threshold=0.5`, that will identify as contaminants all sequences thare are more prevalent in negative controls than in positive samples. Let's try using this more aggressive classification threshold rather than the default. The default threshold for a contaminant is that it reaches a probability of `0.1` in the statistical test being performed.
+
+```{r}
+contamdf.prev05 <- isContaminant(ps, method="prevalence", neg="is_blank", threshold=0.5)
+head(contamdf.prev)
+table(contamdf.prev05$contaminant)
+```
+
+Now there's 84 contaminating ASVs.
+
+Let's take a look at the number of times several of these taxa were observed in negative controls and positive samples.
+
+```{r}
+# make phyloseq object of presence-absence in negative controls and true samples
+ps.pa <- transform_sample_counts(ps, function(abund) 1*(abund>0))
+ps.pa.neg <- prune_samples(sample_data(ps.pa)$is_blank == TRUE, ps.pa)
+ps.pa.pos <- prune_samples(sample_data(ps.pa)$is_blank == FALSE, ps.pa)
+
+# make data frame of prevalence in positive and negative samples
+# Make data.frame of prevalence in positive and negative samples
+df.pa <- data.frame(pa.pos=taxa_sums(ps.pa.pos), pa.neg=taxa_sums(ps.pa.neg),
+                      contaminant=contamdf.prev$contaminant)
+ggplot(
+  data=df.pa, 
+  aes(x=pa.neg, y=pa.pos, color=contaminant)) + 
+  geom_point(alpha = 0.5) +
+  facet_wrap(vars(contaminant)) +
+  xlab("Prevalence (Negative Controls)") + 
+  ylab("Prevalence (True Samples)") +
+  theme_bw()
+```
+
+Samples seem to split pretty cleanly into a branch that shows up mostly in positive samples, and another that shows up mostly in negative controls, and the contaminant assignment (at default probability threshold) has done a good job of identifying those mostly in negative controls.
+
+Here is our list of ASVs that are contaminants:
+
+```{r}
+contamdf.prev05 |> filter(contaminant) |> head()
+
+```
+
+We can make a list of these ASVs for filtering our phyloseq object:
+
+```{r}
+contams <- contamdf.prev05 |> 
+  filter(contaminant == TRUE) |> 
+  rownames()
+
+contams
+```
+
+Similarly, we'll make a list of non-contaminant taxa:
+
+```{r}
+not_contams <- contamdf.prev05 |> 
+  filter(contaminant == FALSE) |> 
+  rownames()
+```
+
+### Remove contaminants from our PS object
+
+First, let's use phyloseq's `prune_taxa` to create a new ps of all our contaminants:
+
+```{r}
+ps.contaminants <- prune_taxa(ps, taxa = contams)
+
+```
+
+And we'll do the same to create a fresh new PS object that is decontaminated:
+
+```{r}
+# define a list of samples to keep:
+pos_samples_list <- metadata |> 
+  filter(!is_blank) |> 
+  rownames_to_column() |> 
+  as_tibble() |>
+  select(`rowname`) |> 
+  pull()
+
+# this is the PS object we will carry forward with our analyses
+ps.decontam <- ps |> 
+  # first we prune the taxa to select only non-contams:
+  prune_taxa(taxa = not_contams) |> 
+  # then we remove the negative controls, as they have served their purpose:
+  subset_samples(is_blank == FALSE) |> 
+  microViz::ps_mutate(
+    depth_m = paste0(depth, "m")
+  ) |> 
+  # validation step
+  microViz::tax_fix()
+  
+```
+
+Now, validate that the phyloseq object is in good shape:
+
+### Validate and finalize our PS object
+
+```{r}
+phyloseq_validate(ps.decontam, verbose = TRUE)
+```
+
+## Cache
+
+Write all of these important phyloseq objects to the repository's cache, so they can be referenced later.
+
+```{r}
+# save original phyloseq object
+write_rds(ps, "cache/ps.RDS")
+
+# save decontam'd PS object
+write_rds(ps.decontam, "cache/ps-decontam.RDS")
+
+# save the contaminant PS object
+write_rds(ps.contaminants, "cache/ps-contaminants.RDS")
+```
+
+# Analysis - All Samples
+
+First, let's take a glance at the entire dataset to get a sense of what's going on. This includes samples taken directly in the field, samples that TAC amended with $^{13}C$ substrates, and samples that SK amended with $D_2O$.
+
+## Alpha Diversity (Simpson's)
+
+Alpha diversity describes "within-sample" diversity. It's a measure of how diverse a single sample is, not taking into account observations of other samples.
+
+Here we apply the Simpson index (or the "Gini-Simpson index"). The Simpson index is similar to the [Shannon Index](https://en.wikipedia.org/wiki/Diversity_index#Shannon_index): it is based on the probability that two entities (microbes, reads, etc.) taken from the sample at random are of different types (e.g., species). As this is a probability, the score ranges from 0 to 1.
+
+$$
+Simpson = 1 - \sum_{i = 1}^{R} p_i^2
+$$
+
+where $p_i$ is the proportion of observations (reads) belonging to the $i$th species.
+
+```{r}
+plot_richness(ps.decontam, measures = "Simpson", color = "amendment", shape = "well") +
+  geom_point(size = 3) +
+  labs(x = "",
+       y = "Simpson Index",
+       shape = "Well",
+       color = "Amendment") +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1, size = 4),
+    strip.text = element_blank()
+    ) 
+```
+
+Here, the thing that stands out most to me is greater alpha diversity (Simpson's) in the "ENV" samples. Remember: these were the samples that were filtered on-site, and were not incubated with any carbon amendments.
+
+## Ordination
+
+```{r}
+ps.decontam.ord <- ordinate(ps.decontam, "NMDS", "bray")
+
+```
+
+```{r}
+plot_ordination(
+  ps.decontam,
+  ps.decontam.ord,
+  type="samples",
+  color= "amendment", 
+  shape = "experiment",
+  title="taxa"
+  ) +
+  # geom_polygon(aes(group = interaction(well, amendment, experiment),
+  #                  fill = amendment), alpha = 0.5) +
+  labs(
+    title = "",
+    shape = "experiment",
+    color = "Amendment"
+    ) +
+  theme_bw()
+
+plotly::ggplotly()
+```
+
+Two things stand out here to me. First, the non-amended samples (what we find in the wells immediately upon sampling) are different from the amended samples. This is not surprising and can be boiled down to two effects:
+
+1.  Microbial community shift: we are taking microbes out of their native habitat and amending them with carbon sources. Note that the higher the carbon amendment, the further distance from the natural sample.
+2.  Sampling depth: on-site, we filtered anywhere from 300 - 600 mL of site fluid onto filters which were then sequenced. For the SIP incubation experiments, only \~50mL of incubated fluid was sequenced. This means that rare taxa are much more likely to be missed, which could cause depressions in alpha diversity (observed above) and differences in community "structure."
+
+It is unclear whether these effects can be teased apart, so the most useful comparisons will be the intra-set comparisons. These sets would be:
+
+1.  Natural samples, filtered on site.
+2.  13C-amended samples
+3.  D2O-amended samples (with C stimulation)
+
+Now let's examine how the wells cluster:
+
+```{r}
+plot_ordination(
+  ps.decontam,
+  ps.decontam.ord,
+  type="samples",
+  color= "amendment", 
+  shape = "well",
+  title="taxa"
+  ) +
+  # geom_polygon(aes(group = interaction(well, amendment, experiment),
+  #                  fill = amendment), alpha = 0.5) +
+  labs(
+    title = "",
+    shape = "Well",
+    color = "Amendment"
+    ) +
+  theme_bw()
+
+plotly::ggplotly()
+
+```
+
+As one might expect, the microbial communities of specific wells are similar to each other (see the pink clusters on the left). Microbial communities are more different between wells than they are between depths, suggesting that fluid depth is not the primary driver of microbial community composition. Furthermore, the amended samples cluster together by well. This suggests that microbial community shifts observed are specific to each well, *even taking into account variability introduced by different amendments*.
+
+# Analysis - (1) Field Samples
+
+Now that we've seen a high level overview, I'll now focus on just the samples that were filtered on-site.
+
+```{r}
+ps.om23.field <- ps.decontam |> 
+  subset_samples(experiment == "OM23 Field") |> 
+  # arrange our sample order by well, then depth
+  ps_arrange(well, depth)
+```
+
+## Alpha Diversity (Simpson's)
+
+```{r}
+plot_richness(ps.om23.field, 
+              measures = "Simpson",
+              color = "as.factor(depth)", 
+              shape = "well"
+              ) +
+  geom_point(size = 3) +
+  scale_color_viridis_d(option = "plasma", direction = -1) +
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(x = "",
+       y = "Simpson Index",
+       shape = "Well",
+       color = "Depth") +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1, size = 4),
+    strip.text = element_blank()
+    ) 
+```
+
+There isn't much to pull out of this. Simpson index doesn't change dramatically between the samples.
+
+## Composition
+
+We'll now calculate relative abundance of taxa in the natural samples.
+
+```{r}
+ps.om23.field.relabund <- ps.om23.field |> 
+  # use a lambda function to calculate relative abundance
+  transform_sample_counts(function(x) x / sum(x))
+  # remove samples below 0.01 (1%) relative abundance
+  #filter_taxa(function(x) mean(x) > 0.01, TRUE)
+```
+
+Bar chart time:
+
+```{r}
+#| fig-width: 12
+#| fig-height: 6
+#| 
+p_field_relabund <- ps.om23.field.relabund |> 
+  #tax_agg("Genus") |> 
+  comp_barplot(tax_level = "Genus",
+               sample_order = rev(sample_list_ordered_field),
+               n_taxa = 30) +
+  facet_grid(
+    rows = vars(well),
+    scales = "free",
+    space = "free"
+  ) +
+  coord_flip() +
+  theme(
+    axis.ticks.y = element_blank(),
+    legend.position = "bottom"
+  )
+p_field_relabund
+```
+
+Really interesting patterns here. Some observations.
+
+1.  All samples have significant populations of Methanobacterium.
+2.  BA1B has significant proportion of *Azospira.* These are nitrogen fixing bacteria.
+3.  BA3A has *Methanobacterium* abundances ranging between 40 - 50 %.
+4.  In BA3A especially (but also in BA1B-150), [D8A-2](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8698779/) is present at high abundance. This is an ulcutred class in the Firmicutes that was characterized to be involved in [magnetite-associated degradation of VFAs](https://www.sciencedirect.com/science/article/pii/S0301479719304955?via%3Dihub#sec3) syntrophically coupled to methanogenesis.
+5.  BA4A has substantial sulfur cycling going on. First, we have Thermodesulfovibrionia class detected at moderate abundance. At high abundance is Sulfuritalea and SRB2. [Sulfuritalea](https://pubmed.ncbi.nlm.nih.gov/20709913/) is a known hydrogenitrophic thiosulfate oxidizer. SRB2 is an uncharacterized sulfate reducing family that has been detected in [CROMO](https://www.frontiersin.org/articles/10.3389/fmicb.2017.00308/full).
+6.  Meiothermus is detected in high abundance in BA4A, even at depth. Meiothermus was previously shown to [co-exist with Thermodesulfovibrionia SRB,](https://link.springer.com/article/10.1134/s0026261723600234#Sec3) and their existence at depth was discussed by [Munro-Erlich et al. 2023](https://www.frontiersin.org/articles/10.3389/fmicb.2023.1138656/full#h5).
+7.  [Magnetospirillum](https://www.sciencedirect.com/topics/medicine-and-dentistry/magnetospirillum), a genus of magnetotactic bacteria, are detected in BA4A. COOL.
+8.  The sulfate reducer detected in BA3A is *not* Thermodesulfovibrio, but rather Desulfonatronum (and a bit of SRB2 Family).
+9.  [Dechlorobacter](https://pubmed.ncbi.nlm.nih.gov/19921177/) is detected in BA3A. This is a genus of perchlorate-reducing bacterium.
+
+# Analysis - (2) 13C Experiments (TAC)
+
+I'll now subset all of the samples that correspond to $^{13}C$ experiments conducted by TAC.
+
+```{r}
+ps.decontam.13C <- ps.decontam |> 
+  subset_samples(experiment == "13C-SIP")
+```
+
+## Alpha Diversity (Simpson's)
+
+```{r}
+plot_richness(
+  ps.decontam.13C,
+  measures = "Simpson", 
+  color = "as.factor(depth)", 
+  shape = "well"
+  ) +
+  facet_wrap(vars(amendment)) +
+  scale_color_viridis_d(direction = -1) +
+  geom_point(size = 3) +
+  labs(x = "",
+       y = "Simpson Index",
+       shape = "Well",
+       color = "Depth") +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1, size = 4)
+    ) 
+```
+
+The same story as before. But I'll add a bit more nuance:in BA1B, bicarbonate and acetate amendments exhibit decreased alpha diversity ... but not formate.
+
+## Composition
+
+```{r}
+ps.decontam.13C.relabund <- ps.decontam.13C |> 
+# use a lambda function to calculate relative abundance
+  transform_sample_counts(function(x) x / sum(x)) 
+  # remove samples below 0.01 (1%) relative abundance
+  #filter_taxa(function(x) mean(x) > 0.01, TRUE)
+```
+
+```{r}
+p_13C_relabund <- ps.decontam.13C.relabund |> 
+  #tax_agg("Genus") |> 
+  comp_barplot(tax_level = "Genus",
+               n_taxa = 30
+               ) +
+  facet_grid(
+    rows = vars(well, amendment),
+    scales = "free",
+    space = "free"
+  ) +
+  coord_flip() +
+  theme(
+    axis.ticks.y = element_blank(),
+    legend.position = "bottom"
+  )
+p_13C_relabund
+```
+
+This seems to be evidence towards microbial community shifts. Methanobacterium and SRB2 relative abundance increases in the amended conditions. For example, in BA1B, SRB2 are barely detected, then they become significant community members.
+
+# Analysis - (3) D2O Experiments
+
+Filter to the D2O samples:
+
+```{r}
+ps.decontam.d2o <- ps.decontam |> 
+  subset_samples(experiment == "D2O-SIP")
+```
+
+## Composition
+
+```{r}
+ps.decontam.d2o.relabund <- ps.decontam.d2o |> 
+# use a lambda function to calculate relative abundance
+  transform_sample_counts(function(x) x / sum(x)) 
+  # remove samples below 0.01 (1%) relative abundance
+  #filter_taxa(function(x) mean(x) > 0.01, TRUE)
+```
+
+```{r}
+p_d2o_relabund <- ps.decontam.d2o.relabund |> 
+  #tax_agg("Genus") |> 
+  comp_barplot(tax_level = "Genus",
+               n_taxa = 30
+               ) +
+  facet_grid(
+    rows = vars(well, amendment),
+    scales = "free",
+    space = "free"
+  ) +
+  coord_flip() +
+  theme(
+    axis.ticks.y = element_blank(),
+    legend.position = "bottom"
+  )
+p_d2o_relabund
+```
+
+The community shift is more apparent: Methanobacterium and SRB2 combined make up \>60% of the microbial community in these incubations.
+
+# Patchwork Plot
+
+```{r}
+plot_list <- ps.decontam |> 
+  ps_filter(is_blank == FALSE) |> 
+  comp_barplot(n_taxa = 20, tax_level = "Genus", group_by = "experiment")
+
+patch <- patchwork::wrap_plots(plot_list, ncol = 1, guides = "collect")
+patch & coord_flip()
+```
