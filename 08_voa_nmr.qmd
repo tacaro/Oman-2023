@@ -107,6 +107,12 @@ voa_corrected_ctl <- voa_corrected |>
   left_join(voa_ctl, by = "compound")
 ```
 
+### Cache it
+
+```{r}
+voa_corrected_ctl |> write_rds("cache/VOA_corrected.RDS")
+```
+
 ### Plot it
 
 ```{r}
