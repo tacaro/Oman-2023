@@ -72,17 +72,21 @@ rm(temp) # remove the temp
 ```{r}
 # Amendment target concentration data
 amendments <- readxl::read_excel("data/13C-amendment-concentrations.xlsx") |> 
-  rename(spike.at13C = at13C,
+  rename(spike.F13C = at13C,
          spike.uM = concentration.um)
 
 # DIC concentration data
-DIC <- readRDS(file = "Caro DIC Run1 March 6/om23_dic_run1.RDS")
+DIC <- readRDS(file = "data/Caro DIC Run1 March 6/om23_dic_run1.RDS")
+
+# VOA data (via EMSL NMR)
+voa_corrected_ctl <- readRDS("cache/VOA_corrected.RDS")
 ```
 
-#### Define color palette
+#### Define color palette and load theme
 
 ```{r}
 amendment_palette <- c("#9c0000", "#004e9c", "#003b09")
+source("source/theme_om23.R")
 ```
 
 # Add metadata
@@ -107,17 +111,17 @@ roi_data <- roi_data |>
   mutate(at13C = Ratio_13Cx12C/ (1 + Ratio_13Cx12C))
 ```
 
-# Plot 1: Investigate at13C trends
+# Plot 1: Investigate raw 13F trends
 
 ```{r}
 neg_ctl_mean <- roi_data |> 
   filter(amendment == "negative control") |> 
-  pull(Ratio_13Cx12C) |> 
+  pull(at13C) |> 
   mean(na.rm = TRUE)
 
 neg_ctl_sd <- roi_data |> 
   filter(amendment == "negative control") |> 
-  pull(Ratio_13Cx12C) |> 
+  pull(at13C) |> 
   sd(na.rm = TRUE)
 
 custom_order = c("BA1B negative control", "BA1B formate", "BA1B bicarbonate", "BA1B acetate", "BA4A formate", "BA4A bicarbonate", "BA4A acetate")
@@ -133,7 +137,8 @@ p_ratio <- roi_data |>
   aes(
     x = at13C,
     y = amendment,
-    color = condition
+    color = amendment,
+    shape = as.factor(depth)
   )
 ) +
   geom_point(
@@ -149,14 +154,13 @@ p_ratio <- roi_data |>
     fill = "red",
     alpha = 0.25
   ) +
-  scale_color_viridis_d(begin = 0.8, end = 0, option = "plasma") +
+  scale_color_manual(values = amendment_palette) +
   facet_wrap(vars(well, depth)) +
   #ggforce::facet_zoom(xlim = c(0, 0.1)) +
   theme_bw() +
   labs(
     x = latex2exp::TeX("$^{13}F$"),
     y = "",
-    color = "Depth (mbs)",
     shape = "Depth (mbs)"
   ) +
   theme(
@@ -183,7 +187,7 @@ amendments |> knitr::kable()
 
 We must account for isotopic dilution of the tracer from carbon pools native to the sample.
 
-For formate and acetate, in the absence of reliable measurements of these compounds, we will use the average of previously measured formate and acetate in Oman wells:
+Before our work with EMSL, we used the following estimates of OA concentrations in the well, taking the mean values.
 
 |  Well  | Formate (µM) | Acetate (µM) |
 |:------:|:------------:|:------------:|
@@ -195,11 +199,42 @@ For formate and acetate, in the absence of reliable measurements of these compou
 formate_estimate.um <- mean(2.33, 1.73, 1.52)
 acetate_estimate.um <- mean(1.37, 1.25, 0.631)
 
-formate_estimate.um
-acetate_estimate.um
+paste0("Formate: ", formate_estimate.um, "uM")
+paste0("Acetate: ", acetate_estimate.um, "uM")
+```
+
+But we now have new data from PNNL EMSL's NMR facility:
+
+```{r}
+voa_corrected_ctl |> 
+  filter(compound %in% c("Acetate", "Formate")) |> 
+  filter(!is_control) |> 
+  select(sample_id, compound, uM_corr) |> 
+  pivot_wider(
+    values_from = uM_corr, 
+    names_from = compound
+    ) |> 
+  rename(Acetate_uM = Acetate,
+         Formate_uM = Formate) |> 
+  gt::gt() |> 
+  gt::data_color(columns = Acetate_uM, palette = "Blues") |> 
+  gt::data_color(columns = Formate_uM, palette = "Greens")
+```
+
+```{r}
+voa_concs <- voa_corrected_ctl |> 
+  filter(compound %in% c("Acetate", "Formate")) |> 
+  filter(!is_control) |> 
+  select(sample_id, compound, uM_corr) |> 
+  rename(voa_conc_uM = uM_corr) |> 
+  mutate(voa_F13C = 0.01105639) |> # 13F of VPDB (13R = 0.011180)
+  mutate(amendment = stringr::str_to_lower(compound)) |> 
+  select(-compound)
 ```
 
 ### Add DIC/OA data to nanoSIMS tibble
+
+Make a slim version of the DIC data
 
 ```{r}
 DIC_slim <- DIC |> 
@@ -212,8 +247,8 @@ DIC_slim <- DIC |>
     DIC.d13C.error = delta(`13C` = d13C.error.S, major = "12C", ref = "VPDB"),
     DIC.R13C = to_ratio(DIC.d13C),
     DIC.R13C.error = to_ratio(DIC.d13C.error ),
-    DIC.at13C = as.numeric(to_abundance(DIC.R13C)),
-    DIC.at13C.error = as.numeric(to_abundance(DIC.R13C.error))
+    DIC.F13C = as.numeric(to_abundance(DIC.R13C)),
+    DIC.F13C.error = as.numeric(to_abundance(DIC.R13C.error))
   ) |> 
   select(-c(d13C.scale, d13C.error.S))
 
@@ -256,50 +291,154 @@ So let's apply this to our samples. We then calculate single-cell growth rate as
 
 ## Calculate growth rates
 
+Now we'll join our data tables of DIC data and amendment data.
+
+1.  Join in the DIC data
+2.  Join in the VOA data
+3.  Join in the amendment data
+4.  calculate the effective concentration `F13C.label` that the cells saw, based on dilution of endogenous carbon sources
+5.  calculate growth rate `mu.d`
+6.  Define `active` cells as cells with 13C enrichment \> 2SD of the blank run. Set inactive cells mu.d to 0.
+
 ```{r}
+# set activity threshold
+F13C.activity_threshold <- neg_ctl_mean + (2 * neg_ctl_sd)
+
+
 # join the tibbles
-growth_data <- roi_data |> 
+ growth_data <- roi_data |> 
+  # rename sample_id column to coupon_id column
+  rename(coupon_id = sample_id) |>
+  # create new column that matches sample_id
+  mutate(sample_id = paste0(well, "-", depth), .before = everything()) |>
   # add the DIC data
   left_join(DIC_slim, by = c("well", "depth")) |>
   # add the amendment data
-  left_join(amendments, by = c("well", "amendment")) |>
-  mutate(
-    at13C.label = calculate_effective(
-      # molarity of natural abundance C source:
+  left_join(amendments, by = c("well", "amendment")) |> 
+  # add the VOA data
+  left_join(voa_concs, by = c("sample_id", "amendment")) |> 
+ mutate(
+    F13C.label = calculate_effective(
+      # define the concentration of natural abundance C source:
       mx = case_when(
         amendment == "bicarbonate" ~ DIC_uM,
-        amendment == "acetate" ~ acetate_estimate.um,
-        amendment == "formate" ~ formate_estimate.um
+        amendment == "acetate" ~ voa_conc_uM,
+        amendment == "formate" ~ voa_conc_uM
       ),
-      # 13C abundance of natural abundance C source:
+      # define the F13C of natural abundance C source:
       fx = case_when(
-        amendment == "bicarbonate" ~ DIC.at13C,
-        amendment == "acetate" ~ 0.01,
-        amendment == "formate" ~ 0.01
+        amendment == "bicarbonate" ~ DIC.F13C,
+        amendment == "acetate" ~ voa_F13C,
+        amendment == "formate" ~ voa_F13C
       ),
       # molarity of the isotope spike:
       mk = spike.uM,
-      fk = spike.at13C
+      fk = spike.F13C
     )
   ) |> 
-  # calculate apparent growth rate
-  mutate(
-    mu.d = calculate_mu(
-      a = 0.85,
-      F2 = at13C,
-      F1 = 0.01,
-      FL = at13C.label,
-      t2 = 30,
-      t1 = 0
-    ),
+   # calculate apparent growth rate
+   mutate(
+     mu.d = calculate_mu(
+       a = 0.8,
+       F2 = at13C,
+       F1 = 0.01,
+       FL = F13C.label,
+       t2 = 30,
+       t1 = 0
+     )
+   ) |> 
+   # if cell F13C did not exceed 2SD of the blank, set active = FALSE and set mu.d to zero
+   mutate(
+     active = if_else(
+       at13C >= F13C.activity_threshold,
+       true = TRUE,
+       false = FALSE
+     ),
+     mu.d = if_else(
+       active,
+       true = mu.d,
+       false = 0
+     ),
     gen.d = log(2)/mu.d
+   )
+```
+
+Let's inspect the effective label strengths of our incubations
+
+```{r}
+effective_label_summary <- growth_data |> 
+  group_by(well, depth, amendment) |> 
+  select(well, depth, amendment, F13C.label) |> 
+  unique()
+```
+
+### Plot 1B: Investigate raw 13F trends with effective label
+
+```{r}
+p_13F <- growth_data |> 
+  mutate(
+    condition = paste(well, amendment),
+    condition = fct_recode(condition, !!!setNames(custom_order, custom_order))
+  ) |> 
+  filter(amendment != "negative control") |> 
+  ggplot(
+  aes(
+    x = at13C,
+    y = amendment,
+    color = amendment,
   )
+) +
+  # geom_point(
+  #   position = position_jitter(height = 0.2),
+  #   alpha = 0.5,
+  #   size = 0.3
+  # ) +
+  geom_point(
+    position = position_nudge(y = - 0.2),
+    alpha = 0.25,
+    shape = 124,
+    size = 5
+    ) +
+  ggdist::stat_pointinterval(color = "black", point_interval = "mean_qi") +
+  geom_vline(xintercept = neg_ctl_mean, linewidth = 0.5, color = "black") +
+  geom_segment(aes(
+    x = F13C.label, 
+    xend = F13C.label, 
+    y = as.numeric(factor(amendment)) - 0.35,
+    yend = as.numeric(factor(amendment)) + 0.35,
+    ),
+    linewidth = 0.5) +
+  annotate(geom = "rect", 
+    xmin = neg_ctl_mean - (2*neg_ctl_sd),
+    xmax = neg_ctl_mean + (2*neg_ctl_sd),
+    ymin = -Inf, ymax = Inf,
+    color = NA,
+    fill = "black",
+    alpha = 1
+  ) +
+  scale_color_manual(values = amendment_palette) +
+  scale_x_continuous(labels = scales::label_percent()) +
+  facet_wrap(vars(well, depth), scales = "free_x") +
+  coord_cartesian(xlim = c(0, 1)) +
+  labs(
+    x = latex2exp::TeX("Cellular $^{13}F$ Enrichment (%)"),
+    y = "",
+    color = "Carbon Amendment"
+  ) +
+  theme_om23() +
+  theme(
+    legend.position = "None"
+  )
+  
+p_13F
+
+cowplot::save_plot(plot = p_13F, filename = "fig_output/p13F.pdf", base_height = 8, base_width = 12)
 ```
 
 ### Plot 2: Growth Rates
 
 ```{r}
-growth_data |> 
+p_growth_rate <- growth_data |> 
   mutate(
     condition = paste(well, amendment),
     condition = fct_recode(condition, !!!setNames(custom_order, custom_order))
@@ -309,24 +448,19 @@ growth_data |>
   aes(
     x = mu.d,
     y = amendment,
-    color = condition
+    color = amendment
   )
 ) +
-  geom_point(
-    position = position_jitter(height = 0.25),
-    alpha = 0.5
+    geom_point(
+    position = position_nudge(y = - 0.2),
+    alpha = 0.25,
+    shape = 124,
+    size = 5
     ) +
-  #geom_vline(xintercept = neg_ctl_mean, linewidth = 0.5, color = "red", alpha = 0.5) +
-  # #annotate(geom = "rect", 
-  #   xmin = neg_ctl_mean - (2*neg_ctl_sd),
-  #   xmax = neg_ctl_mean + (2*neg_ctl_sd),
-  #   ymin = -Inf, ymax = Inf,
-  #   color = NA,
-  #   fill = "red",
-  #   alpha = 0.25
-  # ) +
-  scale_color_viridis_d(begin = 0.8, end = 0, option = "plasma") +
-  facet_wrap(vars(well, depth)) +
+  ggdist::stat_pointinterval(color = "black", point_interval = "mean_qi") +
+  scale_color_manual(values = amendment_palette) +
+  coord_cartesian(xlim = c(0, 0.06)) +
+  facet_wrap(vars(well, depth), scales = "free_x") +
   theme_bw() +
   labs(
     x = latex2exp::TeX("Growth rate $(day^{-1})$"),
@@ -334,24 +468,85 @@ growth_data |>
     color = "Depth (mbs)",
     shape = "Depth (mbs)"
   ) +
+  theme_om23() +
   theme(
-    strip.background = element_rect(fill = "#e3e3e3", color = NA)
-    )
+    legend.position = "None"
+  )
+p_growth_rate
+
+cowplot::save_plot(plot = p_growth_rate, filename = "fig_output/p_growth_rate.pdf",
+                   base_height = 8, base_width = 12)
+```
+
+### Plot 2B: Generation Times
+
+```{r}
+# summarize gentime for plotting
+gen_data <- growth_data |> 
+  group_by(well, depth, amendment) |> 
+  summarize(
+    mu.d = mean(mu.d, na.rm = TRUE)
+  ) |> 
+  mutate(mean_gen.d = log(2)/mu.d)
+
+p_growth_rate_w_gen <- growth_data |> 
+  mutate(
+    condition = paste(well, amendment),
+    condition = fct_recode(condition, !!!setNames(custom_order, custom_order))
+  ) |> 
+  filter(amendment != "negative control") |> 
+  ggplot(
+  aes(
+    x = mu.d,
+    y = amendment,
+    color = amendment
+  )
+) +
+    geom_point(
+    position = position_nudge(y = - 0.2),
+    alpha = 0.25,
+    shape = 124,
+    size = 5
+    ) +
+  geom_text(data = gen_data |> filter(amendment != "negative control"), 
+            aes(label = paste0(round(mean_gen.d), " days"),
+                x = mu.d + 0.01,
+                y = as.numeric(factor(amendment)) + 0.2
+                ),
+            color = "black"
+            ) +
+  ggdist::stat_pointinterval(color = "black", point_interval = "mean_qi") +
+  scale_color_manual(values = amendment_palette) +
+  coord_cartesian(xlim = c(0, 0.06)) +
+  facet_wrap(vars(well, depth), scales = "free_x") +
+  theme_bw() +
+  labs(
+    x = latex2exp::TeX("Growth rate $(day^{-1})$"),
+    y = "",
+    color = "Depth (mbs)",
+    shape = "Depth (mbs)"
+  ) +
+  theme_om23() +
+  theme(
+    legend.position = "None"
+  )
+p_growth_rate_w_gen
+
+cowplot::save_plot(plot = p_growth_rate_w_gen, filename = "fig_output/p_growth_rate_w_gen.pdf",
+                   base_height = 8, base_width = 12)
 ```
 
 ## C assimilation rates
 
 ```{r}
 # Define the mean and standard deviation of our natural abundance control
-mean_at13C_natabund <- roi_data |>
-  filter(amendment == "negative control") |> 
-  pull(at13C) |> 
-  mean()
-
-sd_at13C_natabund <- roi_data |>
-  filter(amendment == "negative control") |> 
-  pull(at13C) |> 
-  sd()
+paste0(
+  "We set our F13C activity threshold as ",
+  round(F13C.activity_threshold, 4),
+  " or ",
+  round(F13C.activity_threshold, 4) * 100,
+  " at. % 13C"
+  )
 ```
 
 The authors of [@stryhanyuk2018] define a term *K* as the fraction of the element incorporated by a cell during incubation with isotope-labeled growth substrates, relative to its initial cellular content. In other words, K represents the fraction of cellular Carbon that is from an isotope tracer, versus carbon *not* from an isotope tracer. The relative assimilation expressed with K values can be used to compare a relative difference and heterogeneity in single cell activity revealed in relative amount of assimilated material.
@@ -557,7 +752,7 @@ assim_data <- growth_data |>
     # add at13C natural abundance (F_i)
     at13C.t0 = mean_at13C_natabund,
     # calculate K, fraction of cell assimilated from tracer
-    K = calculate_K(a = 1, FT = at13C, Fi = at13C.t0, FL = at13C.label),
+    K = calculate_K(a = 1, FT = at13C, Fi = at13C.t0, FL = F13C.label),
     # calculate cell volume
     vol = calculate_volume(L = axis_major_length.um, W = axis_minor_length.um),
     # calculate cell carbon mass in fg
@@ -575,6 +770,13 @@ assim_data <- growth_data |>
 ### Plot 3: Single Cell Carbon Assimilation Rates
 
 ```{r}
+assim_summary <- assim_data |> 
+  group_by(well, depth, amendment) |> 
+  summarize(
+    rC.fmol.d = mean(rC.fmol.d)
+  )
+
+
 p_carbon_assim <- assim_data |> 
   filter(amendment != "negative control") |> # filter negative controls out
   # add "quantified" where sample is quantified if 3sigma above the mean natabund ctl
@@ -597,13 +799,23 @@ p_carbon_assim <- assim_data |>
     shape = 124,
     size = 3
     ) +
-  #scale_color_viridis_d(begin = 0.8, end = 0, option = "plasma") +
-  scale_color_manual(values = amendment_palette) + 
-  scale_x_log10(
-    breaks = trans_breaks("log10", function(x) 10^x),
-    labels = trans_format("log10", math_format(10^.x))
+  geom_text(
+    data = assim_summary |> filter(amendment != "negative control"),
+    aes(
+      x = rC.fmol.d + 0.1,
+      y = as.numeric(factor(amendment)) + 0.2,
+      label = round(rC.fmol.d, 4)
+      ),
+    color = "black"
   ) +
-  annotation_logticks(sides = "b") +
+  scale_color_manual(values = amendment_palette) + 
+  # scale_x_log10(
+  #   breaks = trans_breaks("log10", function(x) 10^x),
+  #   labels = trans_format("log10", math_format(10^.x))
+  # ) +
+  # annotation_logticks(sides = "b") +
+  scale_x_continuous(breaks = c(0, 0.2, 0.4, 0.6, .8)) +
+  coord_cartesian(xlim = c(0, .85)) +
   facet_wrap(vars(well, depth)) +
   theme_bw() +
   labs(
@@ -612,17 +824,11 @@ p_carbon_assim <- assim_data |>
     color = "Depth (mbs)",
     shape = "Depth (mbs)"
   ) +
+  theme_om23() +
   theme(
-    strip.background = element_rect(fill = "#e3e3e3", color = NA),
-    panel.grid.minor = element_blank(),
-    panel.grid.major.y = element_blank(),
-    panel.grid.major.x = element_line(linetype = "dotted"),
-    strip.background.x = element_rect(fill = "black"),
-    strip.text = element_text(color = "white"),
-    panel.border = element_rect(linewidth = 1.2, color = "black"),
-    axis.ticks.x = element_blank(),
     legend.position = "None"
-    )
+  )
+    
 p_carbon_assim
 
 cowplot::save_plot(
@@ -667,22 +873,21 @@ assim_data |>
     color = "Depth (mbs)",
     shape = "Depth (mbs)"
   ) +
+  theme_om23() +
   theme(
-    strip.background = element_rect(fill = "#e3e3e3", color = NA),
-    panel.grid.minor = element_blank(),
-    panel.grid.major.y = element_blank(),
-    panel.grid.major.x = element_line(linetype = "dotted"),
-    strip.background.x = element_rect(fill = "black"),
-    strip.text = element_text(color = "white"),
-    panel.border = element_rect(linewidth = 1.2, color = "black"),
-    axis.ticks.x = element_blank(),
     legend.position = "None"
-    )
+  )
 ```
 
 ### Plot 5: Single Cell Volumes
 
 ```{r}
+cell_vol_summary <- assim_data |> 
+  group_by(well, depth, amendment) |> 
+  summarize(
+    vol = mean(vol, na.rm = TRUE)
+  )
+
 assim_data |> 
   filter(amendment != "negative control") |> # filter negative controls out
   # add "quantified" where sample is quantified if 3sigma above the mean natabund ctl
@@ -698,13 +903,22 @@ assim_data |>
     y = amendment,
     color = amendment
   ) +
-  ggdist::stat_halfeye(color = "black", scale = 0.5) +
+  ggdist::stat_halfeye(color = "black", scale = 0.5, point_interval = "mean_qi") +
   geom_point(
     position = position_nudge(y = -0.2),
     alpha = 0.5,
     shape = 124,
     size = 3
     ) +
+  geom_text(
+    data = cell_vol_summary |> filter(amendment != "negative control"),
+    aes(
+      x = vol + 0.1,
+      y = as.numeric(factor(amendment)) + 0.2,
+      label = round(vol, 2)
+      ),
+    color = "black"
+  ) +
   scale_color_manual(values = amendment_palette) + 
   scale_x_continuous(limits = c(0, 1)) +
   facet_wrap(vars(well, depth)) +
@@ -715,17 +929,10 @@ assim_data |>
     color = "Depth (mbs)",
     shape = "Depth (mbs)"
   ) +
+  theme_om23() +
   theme(
-    strip.background = element_rect(fill = "#e3e3e3", color = NA),
-    panel.grid.minor = element_blank(),
-    panel.grid.major.y = element_blank(),
-    panel.grid.major.x = element_line(linetype = "dotted"),
-    strip.background.x = element_rect(fill = "black"),
-    strip.text = element_text(color = "white"),
-    panel.border = element_rect(linewidth = 1.2, color = "black"),
-    axis.ticks.x = element_blank(),
     legend.position = "None"
-    )
+  )
 ```
 
 ### Plot 6: Growth Rates
