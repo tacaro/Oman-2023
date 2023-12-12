@@ -1,0 +1,37 @@
+---
+title: "DNA Quantification"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+## Pico Green Assay
+
+Using the plate reader in the Fierer lab, used the Pico Green assay to quantify the DNA concentrations of our environmental and incubated Oman fluids.
+
+```{r}
+library(tidyverse)
+```
+
+# Read and reshape plate data
+
+```{r}
+plate_map <- readxl::read_excel("data/16S/Caro_OM23_PlateMap.xlsx",
+                                skip = 12) |> 
+  slice_head(n = 8) |> 
+  select(1:9) |> 
+  column_to_rownames("...1")
+
+
+pico <- readxl::read_excel("data/16S/PicoGreen_11.14.23_Caro_OM23.xlsx", 
+                           skip = 30) |> 
+  column_to_rownames("...1")
+
+wells_ids <- crossing(
+  letters = c("A", "B", "C", "D", "E", "F", "G", "H"),
+  numbers = c(1,2,3,4,5,6,7,8)
+) |> mutate(wells = paste0(letters, numbers))
+
+
+```
