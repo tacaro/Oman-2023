@@ -343,7 +343,23 @@ F13C.activity_threshold <- neg_ctl_mean + (2 * neg_ctl_sd)
        F2 = at13C,
        F1 = 0.01,
        FL = F13C.label,
-       t2 = 30,
+       t2 = case_when(
+         # add the incubation times from OM23 sample matrix .xlsx
+         # START: 7 FEB 2023
+         # END: 19 MAR 2023
+         str_detect(sample_id, "BA1B") ~ 40,
+         str_detect(sample_id, "BA4A") ~ 40,
+         # END: 02 OCT 2023
+         str_detect(sample_id, "BA3A-20") ~ 238,
+         # END: 10 OCT 2023
+         str_detect(sample_id, "BA3A-150-AC") ~ 246,
+         str_detect(sample_id, "BA3A-150-BIC") ~ 246,
+         str_detect(sample_id, "BA3A-270-AC") ~ 246,
+         # END: 18 OCT 2023
+         str_detect(sample_id, "BA3A-150-FORM") ~ 254,
+         str_detect(sample_id, "BA3A-270-FORM") ~ 254,
+         str_detect(sample_id, "BA3A-270-BIC") ~ 254,
+       ),
        t1 = 0
      )
    ) |> 
@@ -370,6 +386,8 @@ effective_label_summary <- growth_data |>
   group_by(well, depth, amendment) |> 
   select(well, depth, amendment, F13C.label) |> 
   unique()
+
+knitr::kable(effective_label_summary)
 ```
 
 ### Plot 1B: Investigate raw 13F trends with effective label
@@ -750,7 +768,7 @@ assim_data <- growth_data |>
   ) |> 
   mutate(
     # add at13C natural abundance (F_i)
-    at13C.t0 = mean_at13C_natabund,
+    at13C.t0 = neg_ctl_mean,
     # calculate K, fraction of cell assimilated from tracer
     K = calculate_K(a = 1, FT = at13C, Fi = at13C.t0, FL = F13C.label),
     # calculate cell volume
@@ -781,7 +799,7 @@ p_carbon_assim <- assim_data |>
   filter(amendment != "negative control") |> # filter negative controls out
   # add "quantified" where sample is quantified if 3sigma above the mean natabund ctl
   mutate(quantified = if_else(
-    at13C > (mean_at13C_natabund + (3*sd_at13C_natabund)),
+    at13C > (neg_ctl_mean + (3*neg_ctl_sd)),
     true = TRUE,
     false = FALSE
   )) |> 
@@ -831,12 +849,12 @@ p_carbon_assim <- assim_data |>
     
 p_carbon_assim
 
-cowplot::save_plot(
-  plot = p_carbon_assim, 
-  filename = "fig_output/carbon_assim.pdf", 
-  base_height = 7,
-  base_width = 9
-  )
+# cowplot::save_plot(
+#   plot = p_carbon_assim, 
+#   filename = "fig_output/carbon_assim.pdf", 
+#   base_height = 7,
+#   base_width = 9
+#   )
 ```
 
 ### Plot 4: Single cell K
@@ -846,7 +864,7 @@ assim_data |>
   filter(amendment != "negative control") |> # filter negative controls out
   # add "quantified" where sample is quantified if 3sigma above the mean natabund ctl
   mutate(quantified = if_else(
-    at13C > (mean_at13C_natabund + (3*sd_at13C_natabund)),
+    at13C > (neg_ctl_mean + (3*neg_ctl_sd)),
     true = TRUE,
     false = FALSE
   )) |> 
@@ -892,7 +910,7 @@ assim_data |>
   filter(amendment != "negative control") |> # filter negative controls out
   # add "quantified" where sample is quantified if 3sigma above the mean natabund ctl
   mutate(quantified = if_else(
-    at13C > (mean_at13C_natabund + (3*sd_at13C_natabund)),
+    at13C > (neg_ctl_mean + (3*neg_ctl_sd)),
     true = TRUE,
     false = FALSE
   )) |> 
@@ -933,52 +951,4 @@ assim_data |>
   theme(
     legend.position = "None"
   )
-```
-
-### Plot 6: Growth Rates
-
-```{r}
-assim_data |> 
-  filter(amendment != "negative control") |> # filter negative controls out
-  # add "quantified" where sample is quantified if 3sigma above the mean natabund ctl
-  mutate(quantified = if_else(
-    at13C > (mean_at13C_natabund + (3*sd_at13C_natabund)),
-    true = TRUE,
-    false = FALSE
-  )) |> 
-  filter(quantified) |> 
-  ggplot() +
-  aes(
-    x = mu.d,
-    y = amendment,
-    color = amendment
-  ) +
-  ggdist::stat_pointinterval(color = "black") +
-  geom_point(
-    position = position_nudge(y = -0.2),
-    alpha = 0.5,
-    shape = 124,
-    size = 3
-    ) +
-  scale_color_manual(values = amendment_palette) +
-  #scale_x_continuous(limits = c(0, 1)) +
-  facet_wrap(vars(well, depth)) +
-  theme_bw() +
-  labs(
-    x = latex2exp::TeX("Growth Rate ($day^{-1}$)"),
-    y = "",
-    color = "Depth (mbs)",
-    shape = "Depth (mbs)"
-  ) +
-  theme(
-    strip.background = element_rect(fill = "#e3e3e3", color = NA),
-    panel.grid.minor = element_blank(),
-    panel.grid.major.y = element_blank(),
-    panel.grid.major.x = element_line(linetype = "dotted"),
-    strip.background.x = element_rect(fill = "black"),
-    strip.text = element_text(color = "white"),
-    panel.border = element_rect(linewidth = 1.2, color = "black"),
-    axis.ticks.x = element_blank(),
-    legend.position = "None"
-    )
 ```
