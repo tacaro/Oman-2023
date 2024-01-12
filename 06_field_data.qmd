@@ -17,7 +17,7 @@ om23 <- readxl::read_excel("data/OM23_field_data.xlsx") |>
   group_by(well) |> 
   mutate(condition = fct_reorder(.f = condition, .x = depth))
 
-well_palette <- c("#207596", "#013812", "#0b6646")
+source("source/color_palettes.R")
 ```
 
 # Plot 1
@@ -25,30 +25,38 @@ well_palette <- c("#207596", "#013812", "#0b6646")
 ```{r}
 p_pH <- om23 |> 
   filter(!well %in% c("NSHQ14", "BA1D"), depth %in% c(20, 150, 250, 270)) |> 
-  #mutate(well = fct_relevel(well, c("BA1B", "BA4A", "BA3A"))) |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
   ggplot(
   aes(
-    x = condition,
-    y = pH,
+    x = pH,
+    y = depth,
     fill = well,
+    color = well,
     label = pH
   )
 ) +
-  geom_col() +
-  scale_y_continuous(expand = c(0,0), limits = c(0, 14)) +
+  geom_point(size = 3) +
+  geom_path(linewidth = 1.5) +
+  scale_x_continuous(expand = c(0,0), limits = c(7, 12)) +
+  annotate(geom = "text", label = "BA1B", x = 8, y = 5, color = well_palette[1]) +
+  annotate(geom = "text", label = "BA4A", x = 9.5, y = 5, color = well_palette[2]) +
+  annotate(geom = "text", label = "BA3A", x = 11, y = 20, color = well_palette[3]) +
+  scale_y_reverse(breaks = c(0, 20, 150, 250, 270)) +
   scale_fill_manual(values = well_palette) +
-  ggrepel::geom_text_repel(
-    nudge_y = -0.5,
-    color = "white",
-    segment.color = NA,
-    segment.curvature = 1,
-    size = 3) +
+  scale_color_manual(values = well_palette) +
+  # ggrepel::geom_text_repel(
+  #   nudge_y = -0.5,
+  #   color = "white",
+  #   segment.color = NA,
+  #   segment.curvature = 1,
+  #   size = 3) +
   theme_classic() +
   labs(
-    x = "",
-    fill = "",
-    title = "pH"
+    x = "pH",
+    y = "Depth (mbs)",
+    fill = ""
   ) +
+  ggprism::theme_prism() +
   theme(
     axis.text.x = element_text(angle = 45, hjust = 1),
     legend.position = "none"
@@ -61,32 +69,41 @@ p_pH
 ```{r}
 p_cond <- om23 |> 
   filter(!well %in% c("NSHQ14", "BA1D"), depth %in% c(20, 150, 250, 270)) |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
   ggplot(
   aes(
-    x = condition,
-    y = `conductivity (µS/cm)`,
+    y = depth,
+    x = `conductivity (µS/cm)`,
     fill = well,
-    label = `conductivity (µS/cm)`
+    color = well,
+    #label = `conductivity (µS/cm)`
   )
 ) +
-  geom_col() +
-  scale_y_continuous(expand = c(0,0), limits = c(0, 3500)) +
+  geom_point(size = 3) +
+  geom_path(linewidth = 1.5) +
+  annotate(geom = "text", label = "BA3A", x = 2500, y = 70, color = well_palette[3]) +
+  annotate(geom = "text", label = "BA4A", x = 1000, y = 150, color = well_palette[2]) +
+  annotate(geom = "text", label = "BA1B", x = 0, y = 150, color = well_palette[1]) +
+  scale_x_continuous(limits = c(-150, 3500)) +
+  scale_y_reverse(breaks = c(0, 20, 150, 250, 270)) +
   scale_fill_manual(values = well_palette) +
-  ggrepel::geom_text_repel(
-    nudge_y = -10,
-    color = "white",
-    segment.color = NA,
-    segment.curvature = 1,
-    size = 3) +
+  scale_color_manual(values = well_palette) +
+  # ggrepel::geom_text_repel(
+  #   nudge_y = -10,
+  #   color = "white",
+  #   segment.color = NA,
+  #   segment.curvature = 1,
+  #   size = 3) +
   theme_classic() +
   labs(
-    x = "",
-    fill = "",
-    y = "Conductivity (µS/cm)",
-    title = "Conductivity"
+    y = "Depth (mbs)",
+    #fill = "",
+    x = "Conductivity (µS/cm)",
+    #title = "Conductivity"
   ) +
+  ggprism::theme_prism() +
   theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.x = element_text(angle = 0, hjust = .5),
     legend.position = "none"
   )
 p_cond
@@ -94,4 +111,20 @@ p_cond
 
 ```{r}
 cowplot::plot_grid(p_pH, p_cond)
+```
+
+```{r}
+cowplot::save_plot(
+  plot = p_pH,
+  filename = "fig_output/om23_pH.pdf",
+  base_height = 4,
+  base_width = 4
+)
+
+cowplot::save_plot(
+  plot = p_cond,
+  filename = "fig_output/om23_conductivity.pdf",
+  base_height = 4,
+  base_width = 4
+)
 ```
