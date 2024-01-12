@@ -33,12 +33,25 @@ ic.loq <- readxl::read_excel("data/IC-ICP/IC-ICP-data-cleaned.xlsx", sheet = 2,
 icp <- readxl::read_excel("data/IC-ICP/IC-ICP-data-cleaned.xlsx", sheet = 3)
 
 icp.dl <- readxl::read_excel("data/IC-ICP/IC-ICP-data-cleaned.xlsx", sheet = 4)
+
+
+# Load auxillary field data (see 06_field_data.qmd for more analysis)
+
+om23 <- readxl::read_excel("data/OM23_field_data.xlsx") |> 
+  group_by(well) |> 
+  mutate(condition = fct_reorder(.f = condition, .x = depth)) |> 
+  filter(!well %in% c("NSHQ14", "BA1D"), depth %in% c(20, 150, 250, 270)) |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
+  rename(sample_id = condition) |> 
+  ungroup() |> 
+  select(-well, -depth, -date)
 ```
 
-### Load Color Palette
+### Load Color Palette and theme
 
 ```{r}
-well_palette <- c("#207596", "#013812", "#0b6646")
+source("source/color_palettes.R")
+source("source/theme_om23.R")
 ```
 
 ## Add metadata, LOQ, DL
@@ -85,9 +98,11 @@ icp <- icp |>
       str_detect(`Sample Id`, "270") ~ 270,
       str_detect(`Sample Id`, "275") ~ 275,
       str_detect(`Sample Id`, "120") ~ 120
-    )
+    ),
     ) |> 
-  rename(sample_id = `Sample Id`)
+  select(-`Sample Id`) |> 
+  mutate(sample_id = paste0(well, "-", depth)) |> 
+  select(sample_id, everything())
 ```
 
 Add the LOQ to IC data:
@@ -114,8 +129,10 @@ ic.complete <- ic.long |>
       is.na(`Concentration (mg/L)`) ~ FALSE,
       `Concentration (mg/L)` >= `LOQ (mg/L)` ~ TRUE,
       `Concentration (mg/L)` > `LOQ (mg/L)` ~ FALSE
-  )
-  )
+      )
+  ) |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
+  left_join(om23, by = "sample_id")
 
 # Remove intermediate tibbles
 rm(ic.long)
@@ -150,8 +167,10 @@ icp.complete <- icp.long |>
       is.na(`Concentration (mg/L)`) ~ FALSE,
       `Concentration (mg/L)` >= `DL (mg/L)` ~ TRUE,
       `Concentration (mg/L)` < `DL (mg/L)` ~ FALSE
-  )
-  )
+      )
+  ) |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
+  left_join(om23, by = "sample_id")
 
 # Remove intermediate tibbles
 rm(icp.long)
@@ -172,24 +191,27 @@ p_so4 <- ic.complete |>
   mutate(condition = fct_reorder(.f = condition, .x = depth)) |> 
   ggplot(
     aes(
-      x = condition,
-      y = `Concentration (mg/L)`,
-      fill = well
+      y = depth,
+      x = `Concentration (mg/L)`,
+      fill = well,
+      color = well
     )
   ) +
-  geom_col() +
-  scale_y_continuous(expand = c(0,0)) +
-  scale_fill_manual(values = well_palette) +
+  geom_point(size = 3) +
+  geom_path(linewidth = 1.5) +
+  scale_y_reverse() +
+  scale_color_manual(values = well_palette) +
   labs(
-    x = "",
-    y = "Concentration (mg/L)",
+    y = "Depth (mbs)",
+    x = "Concentration (mg/L)",
     fill = "",
     title = latex2exp::TeX("Sulfate $(SO_{4}^{2-})$")
   ) +
-  theme_classic() +
+  ggprism::theme_prism() +
   theme(
     axis.text.x = element_text(angle = 45, hjust = 1),
-    legend.position = "None"
+    legend.position = "None",
+    aspect.ratio = 1
   )
 p_so4
 ```
@@ -198,7 +220,8 @@ p_so4
 
 ```{r}
 p_no3 <- ic.complete |> 
-  filter(compound == "Nitrate") |> view()
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
+  filter(compound == "Nitrate") |> 
   filter(well != "BA1D") |> 
   filter(!depth %in% c(200, 275)) |> 
   mutate(condition = paste(well, depth)) |> 
@@ -206,24 +229,27 @@ p_no3 <- ic.complete |>
   mutate(condition = fct_reorder(.f = condition, .x = depth)) |> 
   ggplot(
     aes(
-      x = condition,
-      y = `Concentration (mg/L)`,
-      fill = well
+      y = depth,
+      x = `Concentration (mg/L)`,
+      fill = well,
+      color = well
     )
   ) +
-  geom_col() +
-  scale_y_continuous(expand = c(0,0)) +
-  scale_fill_manual(values = well_palette) +
+  geom_point(size = 3) +
+  geom_path(linewidth = 1.5) +
+  scale_y_reverse() +
+  scale_color_manual(values = well_palette) +
   labs(
     x = "",
     y = "Concentration (mg/L)",
     fill = "",
-    title = latex2exp::TeX("Nitrate $(NO_{3}^{-})$")
+    title = latex2exp::TeX("Nitrate $(SO_{4}^{2-})$")
   ) +
-  theme_classic() +
+  ggprism::theme_prism() +
   theme(
     axis.text.x = element_text(angle = 45, hjust = 1),
-    legend.position = "None"
+    legend.position = "None",
+    aspect.ratio = 1
   )
 p_no3
 ```
@@ -232,32 +258,36 @@ p_no3
 
 ```{r}
 p_cl <- ic.complete |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
   filter(compound == "Chloride") |> 
   filter(well != "BA1D") |> 
   filter(!depth %in% c(200, 275)) |> 
   mutate(condition = paste(well, depth)) |> 
   group_by(well) |> 
-  mutate(condition = fct_reorder(.f = condition, .x = depth)) |> 
+  #mutate(condition = fct_reorder(.f = condition, .x = depth)) |> 
   ggplot(
     aes(
-      x = condition,
-      y = `Concentration (mg/L)`,
-      fill = well
+      y = depth,
+      x = `Concentration (mg/L)`,
+      fill = well,
+      color = well
     )
   ) +
-  geom_col() +
-  scale_y_continuous(expand = c(0,0)) +
-  scale_fill_manual(values = well_palette) +
+  geom_point(size = 3) +
+  geom_path(linewidth = 1.5) +
+  scale_y_reverse(breaks = c(0, 20, 150, 250, 270)) +
+  scale_color_manual(values = well_palette) +
+  coord_cartesian(xlim = c(0, 420), ylim = c(270, 0)) +
   labs(
-    x = "",
-    y = "Concentration (mg/L)",
-    title = latex2exp::TeX("Chloride $(Cl^-)$"),
-    fill = ""
+    y = "Depth (mbs)",
+    x = "Concentration (mg/L)",
+    fill = "",
+    title = latex2exp::TeX("Chloride $(Cl^-)$")
   ) +
-  theme_classic() +
+  ggprism::theme_prism() +
   theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    legend.position = "None"
+    legend.position = "None",
+    aspect.ratio = 1
   )
 p_cl
 
@@ -272,101 +302,245 @@ legend <- cowplot::get_legend(
 ```{r}
 p_fe <- icp.complete |> 
   filter(compound == "Fe 238.204 - A") |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
   filter(well != "BA1D") |> 
   filter(!depth %in% c(200, 275)) |> 
   mutate(condition = paste(well, depth)) |> 
   group_by(well) |> 
-  mutate(condition = fct_reorder(.f = condition, .x = depth)) |> 
+  #mutate(condition = fct_reorder(.f = condition, .x = depth)) |> 
   ggplot(
     aes(
-      x = condition,
-      y = `Concentration (mg/L)`,
+      y = depth,
+      x = `Concentration (mg/L)`,
       fill = well,
-      label = if_else(
-        quantifiable,
-        true =  as.character(round(`Concentration (mg/L)`, 3)),
-        false = "ND"
-      )
+      color = well
     )
   ) +
-  geom_col() +
-  ggrepel::geom_text_repel(
-    nudge_x = 0.2, 
-    nudge_y = 0.1, 
-    size = 3, 
-    color = "black",
-    segment.alpha = 0.25,
-    segment.curvature = 1
-    ) +
-  scale_y_continuous(expand = c(0,0)) +
-  scale_fill_manual(values = well_palette) +
+  geom_point(size = 3) +
+  geom_path(linewidth = 1.5) +
+  scale_y_reverse(breaks = c(0, 20, 150, 250, 270)) +
+  scale_color_manual(values = well_palette) +
+  coord_cartesian(xlim = c(0, 0.6), ylim = c(270, 0)) +
   labs(
-    x = "",
-    y = "Concentration (mg/L)",
-    title = latex2exp::TeX("Total Dissolved Iron"),
-    fill = ""
+    y = "Depth (mbs)",
+    x = "Concentration (mg/L)",
+    fill = "",
+    title = latex2exp::TeX("Total Iron $(Fe_T)$")
   ) +
-  theme_classic() +
+  ggprism::theme_prism() +
   theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    legend.position = "None"
+    legend.position = "None",
+    aspect.ratio = 1
   )
 p_fe
 ```
 
+### Calcium
+
 ```{r}
 p_ca <- icp.complete |> 
   filter(compound == "Ca 317.933 - A") |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
   filter(well != "BA1D") |> 
   filter(!depth %in% c(200, 275)) |> 
   mutate(condition = paste(well, depth)) |> 
   group_by(well) |> 
-  mutate(condition = fct_reorder(.f = condition, .x = depth)) |> 
+  #mutate(condition = fct_reorder(.f = condition, .x = depth)) |> 
   ggplot(
     aes(
-      x = condition,
-      y = `Concentration (mg/L)`,
+      y = depth,
+      x = `Concentration (mg/L)`,
       fill = well,
-      label = if_else(
-        quantifiable,
-        true =  as.character(round(`Concentration (mg/L)`, 2)),
-        false = "ND"
-      )
+      color = well
     )
   ) +
-  geom_col() +
-  # ggrepel::geom_text_repel(
-  #   nudge_x = 0.2, 
-  #   nudge_y = 0.1, 
-  #   size = 3, 
-  #   color = "black",
-  #   segment.alpha = 0.25,
-  #   segment.curvature = 1
-  #   ) +
-  scale_y_continuous(expand = c(0,0)) +
-  scale_fill_manual(values = well_palette) +
+  geom_point(size = 3) +
+  geom_path(linewidth = 1.5) +
+  scale_y_reverse(breaks = c(0, 20, 150, 250, 270)) +
+  scale_color_manual(values = well_palette) +
+  coord_cartesian(xlim = c(0, 250), ylim = c(270, 0)) +
   labs(
-    x = "",
-    y = "Concentration (mg/L)",
-    title = latex2exp::TeX("Calcium $(Ca^{2+})$"),
-    fill = ""
+    y = "Depth (mbs)",
+    x = "Concentration (mg/L)",
+    fill = "",
+    title = latex2exp::TeX("Calcium $(Ca^{2+})$")
   ) +
-  theme_classic() +
+  ggprism::theme_prism() +
   theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    legend.position = "None"
+    legend.position = "None",
+    aspect.ratio = 1
   )
 p_ca
 ```
 
-```{r}
+### Ca vs. pH
 
+```{r}
+p_ca_pH <- icp.complete |> 
+  filter(compound == "Ca 317.933 - A") |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
+  filter(well != "BA1D") |> 
+  filter(!depth %in% c(200, 275)) |> 
+  mutate(condition = paste(well, depth)) |> 
+  # calculate molality
+  mutate(molality = (`Concentration (mg/L)` / 28.0855) / 1000) |> 
+  mutate(logca_molal = log10(molality)) |> 
+  ggplot(
+    aes(
+      y = pH,
+      x = logca_molal,
+      color = well,
+      shape = as.factor(depth)
+    )
+  ) +
+  geom_point(size = 3) + 
+  scale_color_manual(values = well_palette) +
+  scale_shape_manual(values = c(0, 2, 1, 16)) +
+  #coord_cartesian(xlim = c(-5, -3.5)) +
+  scale_x_continuous() +
+  theme_om23() +
+  labs(
+    shape = "Depth (mbs)",
+    color = "Well",
+    x = "Ca (log m)"
+  ) +
+  ggprism::annotation_ticks(sides = "tblr") +
+  theme(
+    axis.ticks = element_blank(),
+    panel.grid.major = element_blank(),
+    legend.position = "left"
+  )
+p_ca_pH
+
+cowplot::save_plot(
+  filename = "fig_output/ca_vs_pH.pdf",
+  plot = p_ca_pH,
+  base_height = 4,
+  base_width = 5
+)
 ```
 
-### Cowplot SO4, Cl, Fe, Ca
+### Si
 
 ```{r}
-cowplot::plot_grid(p_so4, p_cl, p_fe, p_ca, nrow = 2)
+p_si <- icp.complete |> 
+  filter(compound == "Si 251.611 - A") |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
+  filter(well != "BA1D") |> 
+  filter(!depth %in% c(200, 275)) |> 
+  mutate(condition = paste(well, depth)) |> 
+  group_by(well) |> 
+  #mutate(condition = fct_reorder(.f = condition, .x = depth)) |> 
+  ggplot(
+    aes(
+      y = depth,
+      x = `Concentration (mg/L)`,
+      color = well
+    )
+  ) +
+  geom_point(size = 3) +
+  geom_path(linewidth = 1.5) +
+  scale_y_reverse(breaks = c(0, 20, 150, 250, 270)) +
+  #scale_x_log10() +
+  #annotation_logticks(sides = "b") +
+  scale_color_manual(values = well_palette) +
+  coord_cartesian(xlim = c(0.45, 0.65), ylim = c(270, 0)) +
+  scale_x_continuous(breaks = seq(0.45, 0.65, by = 0.025)) +
+  labs(
+    y = "Depth (mbs)",
+    x = "Concentration (mg/L)",
+    fill = "",
+    title = latex2exp::TeX("$Si$")
+  ) +
+  ggprism::theme_prism() +
+  ggprism::annotation_ticks() +
+  theme(
+    #legend.position = "None",
+    aspect.ratio = 1,
+    axis.ticks.length.x = unit(0, "cm"),
+    axis.text.x = element_text(size = 8)
+  )
+p_si
+```
+
+### Si vs. pH
+
+Convert to molality as follows:
+
+$$
+m (mol/kg) = \frac{Concentration \space (mg/L)}{Si MW \space (g/mol)} \times \frac{1}{1000}
+$$
+
+Where SiMW is the molecular weight of Silicon: 28.0855 g/mol.
+
+```{r}
+p_si_pH <- icp.complete |> 
+  filter(compound == "Si 251.611 - A") |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
+  filter(well != "BA1D") |> 
+  filter(!depth %in% c(200, 275)) |> 
+  mutate(condition = paste(well, depth)) |> 
+  # calculate molality
+  mutate(molality = (`Concentration (mg/L)` / 28.0855) / 1000) |> 
+  mutate(logsi_molal = log10(molality)) |> 
+  ggplot(
+    aes(
+      y = pH,
+      x = logsi_molal,
+      color = well,
+      shape = as.factor(depth)
+    )
+  ) +
+  geom_point(size = 3) + 
+  scale_color_manual(values = well_palette) +
+  scale_shape_manual(values = c(0, 2, 1, 16)) +
+  coord_cartesian(xlim = c(-5, -3.5)) +
+  scale_x_continuous() +
+  theme_om23() +
+  labs(
+    shape = "Depth (mbs)",
+    color = "Well",
+    x = "Si (log m)"
+  ) +
+  ggprism::annotation_ticks(sides = "tblr") +
+  theme(
+    axis.ticks = element_blank(),
+    panel.grid.major = element_blank(),
+    legend.position = "left"
+  )
+p_si_pH
+
+p_si_pH_w_box <- p_si_pH %+% annotate(geom = "rect", xmin = -4.8, xmax = -4.6, ymin = 9, ymax = 12, color = "gray", fill = NA, alpha = 0.2)
+p_si_pH_w_box
+
+p_si_pH_zoom <- p_si_pH %+%
+  coord_cartesian(xlim = c(-4.8, -4.6), ylim = c(9, 12)) %+%
+  theme(legend.position = "None", aspect.ratio = 1)
+p_si_pH_zoom
+
+p_si_pH_combined <- cowplot::plot_grid(p_si_pH_w_box, p_si_pH_zoom, rel_widths = c(0.7, 0.3),
+                                       labels = c("A", "B"))
+
+cowplot::save_plot(
+  filename = "fig_output/si_vs_pH.pdf",
+  plot = p_si_pH_combined,
+  base_height = 5,
+  base_width = 8
+)
+```
+
+### Cowplot Major Ions
+
+```{r}
+p_major_ions <- cowplot::plot_grid(p_so4, p_cl, p_ca, p_fe, p_ca, p_si, nrow = 2)
+p_major_ions
+
+cowplot::save_plot(
+  filename = "fig_output/major_ions.pdf",
+  plot = p_major_ions,
+  base_height = 7,
+  base_width = 11
+)
 ```
 
 ### Cations
@@ -407,4 +581,11 @@ p_cations <- icp.complete |>
     legend.position = "None"
   )
 p_cations
+
+cowplot::save_plot(
+  filename = "fig_output/all_cations.pdf",
+  plot = p_cations,
+  base_height = 20,
+  base_width = 24
+)
 ```
