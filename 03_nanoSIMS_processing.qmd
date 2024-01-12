@@ -85,7 +85,7 @@ voa_corrected_ctl <- readRDS("cache/VOA_corrected.RDS")
 #### Define color palette and load theme
 
 ```{r}
-amendment_palette <- c("#9c0000", "#004e9c", "#003b09")
+source("source/color_palettes.R")
 source("source/theme_om23.R")
 ```
 
@@ -155,7 +155,7 @@ p_ratio <- roi_data |>
     alpha = 0.25
   ) +
   scale_color_manual(values = amendment_palette) +
-  facet_wrap(vars(well, depth)) +
+  facet_wrap(vars(depth, well)) +
   #ggforce::facet_zoom(xlim = c(0, 0.1)) +
   theme_bw() +
   labs(
@@ -296,13 +296,13 @@ Now we'll join our data tables of DIC data and amendment data.
 1.  Join in the DIC data
 2.  Join in the VOA data
 3.  Join in the amendment data
-4.  calculate the effective concentration `F13C.label` that the cells saw, based on dilution of endogenous carbon sources
+4.  Calculate the effective concentration `F13C.label` that the cells saw, based on dilution of endogenous carbon sources
 5.  calculate growth rate `mu.d`
-6.  Define `active` cells as cells with 13C enrichment \> 2SD of the blank run. Set inactive cells mu.d to 0.
+6.  Define `active` cells as cells with 13C enrichment \> 3SD of the blank run. Set inactive cells mu.d to 0.
 
 ```{r}
 # set activity threshold
-F13C.activity_threshold <- neg_ctl_mean + (2 * neg_ctl_sd)
+F13C.activity_threshold <- neg_ctl_mean + (3 * neg_ctl_sd)
 
 
 # join the tibbles
@@ -339,9 +339,9 @@ F13C.activity_threshold <- neg_ctl_mean + (2 * neg_ctl_sd)
    # calculate apparent growth rate
    mutate(
      mu.d = calculate_mu(
-       a = 0.8,
+       a = 1, # assume assimilation efficiency of the carbon source is 1, ignoring fractionation effects because they are unknown
        F2 = at13C,
-       F1 = 0.01,
+       F1 = neg_ctl_mean,
        FL = F13C.label,
        t2 = case_when(
          # add the incubation times from OM23 sample matrix .xlsx
@@ -554,16 +554,310 @@ cowplot::save_plot(plot = p_growth_rate_w_gen, filename = "fig_output/p_growth_r
                    base_height = 8, base_width = 12)
 ```
 
+#### Plot 2.1 Updated growth rate
+
+```{r}
+# define a plotting helper function
+plot_growth_rate <- function(well_choice, legend_choice = "None") {
+  color_choice = case_when(
+      well_choice == "BA1B" ~ 1,
+      well_choice == "BA3A" ~ 3,
+      well_choice == "BA4A" ~ 2,
+    )
+  
+  
+  # now plot!
+  growth_data |> 
+  filter(amendment != "negative control") |> # filter negative controls out
+  # add "quantified" where sample is quantified if 3sigma > mean neg CTL
+  mutate(quantified = if_else(
+    at13C > (neg_ctl_mean + (3*neg_ctl_sd)),
+    true = TRUE,
+    false = FALSE)
+    ) |>
+  # uncomment this to remove samples that were not above background from plot
+  # filter(quantified) |>
+  filter(well == well_choice) |> 
+  mutate(
+    depth_str = paste0(depth, "m"),
+    depth_str = forcats::fct_reorder(
+      depth_str, depth, .desc = TRUE
+      )
+  ) |> 
+  ggplot() +
+  aes(
+    x = mu.d,
+    y = depth_str,
+    color = amendment,
+    shape = amendment
+  ) +
+  geom_point(
+    data = function(df) df |> filter(!quantified),
+    position = position_jitterdodge(
+      jitter.width = 0.1,
+      jitter.height = 0,
+      dodge.width = 0.5
+    ),
+    alpha = 0.5,
+    size = 1,
+    color = "gray30"
+  ) +  
+  geom_point(
+    data = function(df) df |> filter(quantified),
+    position = position_jitterdodge(
+      jitter.width = 0.1,
+      jitter.height = 0,
+      dodge.width = 0.5
+    ),
+    alpha = 0.5,
+    size = 1,
+  ) +
+  ggdist::stat_pointinterval(
+    aes(group = amendment), 
+    position = position_dodge(0.5),
+    point_size = 4,
+    color = "black"
+    ) +
+  scale_color_manual(values = amendment_palette) + 
+  #scale_x_continuous(breaks = c(0, 0.2, 0.4, 0.6, .8)) +
+  coord_cartesian(xlim = c(0, 0.05)) +
+  # scale_x_log10(
+  #   labels = scales::trans_format("log10", 
+  #   scales::math_format(10^.x)),
+  #   breaks = c(1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0)
+  #   ) +
+  facet_wrap(vars(well)) +
+  #annotation_logticks(sides = "bt") +
+  theme_bw() +
+  labs(
+    x = latex2exp::TeX("Cell-specific growth rate $(day^{-1})$"),
+    y = "",
+    color = "Carbon Source",
+    shape = "Carbon Source"
+  ) +
+  theme_om23() +
+  theme(
+    legend.position = legend_choice,
+    axis.ticks.y = element_blank(),
+    plot.margin = margin(0.25,0.25,0.25,0.25, "cm"),
+    strip.background = element_rect(fill = well_palette[color_choice]),
+    strip.text = element_text(margin = margin(0.2,0,0.2,0, "cm"))
+  )
+}
+
+p_growth_legend <- cowplot::get_legend(plot_growth_rate("BA1B", legend = "right"))
+
+p_growth_combined <- cowplot::plot_grid(
+  plot_growth_rate("BA1B"),
+  plot_growth_rate("BA4A"),
+  plot_growth_rate("BA3A"),
+  p_growth_legend,
+  nrow = 1
+)
+p_growth_combined
+
+# cowplot::save_plot(
+#   plot = p_growth_combined,
+#   filename = "fig_output/growth_combined.pdf",
+#   base_width = 10, base_height = 5.5
+#   )
+
+```
+
+#### Plot 2.2: Updated gen time
+
+```{r}
+
+growth_data_summary <- growth_data |> 
+  filter(amendment != "negative control") |> # filter negative controls out
+  # add "quantified" where sample is quantified if 3sigma > mean neg CTL
+  mutate(
+    quantified = if_else(
+      at13C > (neg_ctl_mean + (3*neg_ctl_sd)),
+      true = TRUE,
+      false = FALSE)
+    ) |>
+  filter(quantified) |>
+  mutate(
+    depth_str = paste0(depth, "m"),
+    depth_str = forcats::fct_reorder(
+      depth_str, depth, .desc = TRUE
+      )
+  ) |>
+    group_by(well, depth_str, amendment) |> 
+    summarize(mean_mu.d = mean(mu.d, na.rm = TRUE),
+              max_mu.d = max(mu.d, na.rm = TRUE),
+              min_mu.d = min(mu.d, na.rm = TRUE)) |>
+    mutate(mean_gen.d = log(2) / mean_mu.d,
+           max_gen.d = log(2) / min_mu.d,
+           min_gen.d = log(2) / max_mu.d) |> 
+    ungroup()
+
+# define a plotting helper function
+plot_gen_time <- function(well_choice, legend_choice = "None") {
+  color_choice = case_when(
+      well_choice == "BA1B" ~ 1,
+      well_choice == "BA3A" ~ 3,
+      well_choice == "BA4A" ~ 2,
+    )
+  
+  
+  # now plot!
+  growth_data |> 
+  filter(amendment != "negative control") |> # filter negative controls out
+  # add "quantified" where sample is quantified if 3sigma > mean neg CTL
+  mutate(quantified = if_else(
+    at13C > (neg_ctl_mean + (3*neg_ctl_sd)),
+    true = TRUE,
+    false = FALSE)
+    ) |>
+  # uncomment this to remove samples that were not above background from plot
+  # filter(quantified) |>
+  filter(well == well_choice) |> 
+  mutate(
+    depth_str = paste0(depth, "m"),
+    depth_str = forcats::fct_reorder(
+      depth_str, depth, .desc = TRUE
+      )
+  ) |> 
+  ggplot() +
+  aes(
+    x = gen.d,
+    y = depth_str,
+    color = amendment,
+    shape = amendment
+  ) +
+  geom_point(
+    data = function(df) df |> filter(!quantified),
+    position = position_jitterdodge(
+      jitter.width = 0.1,
+      jitter.height = 0,
+      dodge.width = 0.5
+    ),
+    alpha = 0.5,
+    size = 1,
+    color = "gray30"
+  ) +
+  geom_point(
+    data = function(df) df |> filter(quantified),
+    position = position_jitterdodge(
+      jitter.width = 0.1,
+      jitter.height = 0,
+      dodge.width = 0.5
+    ),
+    alpha = 0.5,
+    size = 1,
+  ) +
+  geom_boxplot(
+    color = "black",
+    fill = NA,
+    outlier.shape = NA,
+    position = position_dodge(width = 0.5),
+    width = 0.25,
+    size = 0.8
+  ) +
+  scale_color_manual(values = amendment_palette) + 
+  coord_cartesian(xlim = c(1, 1e5)) +
+  scale_x_log10(
+    labels = scales::trans_format("log10",
+    scales::math_format(10^.x)),
+    breaks = c(1e0, 1e1, 1e2, 1e3, 1e4, 1e5)
+    ) +
+  facet_wrap(vars(well)) +
+  annotation_logticks(sides = "bt") +
+  theme_bw() +
+  labs(
+    x = latex2exp::TeX("Biomass Generation Time (days)"),
+    y = "",
+    color = "Carbon Source",
+    shape = "Carbon Source"
+  ) +
+  theme_om23() +
+  theme(
+    legend.position = legend_choice,
+    axis.ticks.y = element_blank(),
+    plot.margin = margin(0.25,0.25,0.25,0.25, "cm"),
+    strip.background = element_rect(fill = well_palette[color_choice]),
+    strip.text = element_text(margin = margin(0.2,0,0.2,0, "cm"))
+  )
+}
+
+p_gen_time <- cowplot::plot_grid(
+  plot_gen_time("BA1B"),
+  plot_gen_time("BA4A"),
+  plot_gen_time("BA3A"),
+  nrow = 1
+)
+
+p_gen_time
+
+cowplot::save_plot(
+  plot = p_gen_time,
+  filename = "fig_output/gentime_combined.pdf",
+  base_width = 10, base_height = 4
+  )
+```
+
+#### Table: Gen Time Table
+
+```{r}
+growth_data_summary |> 
+  select(well, depth_str, amendment, mean_gen.d, max_gen.d, min_gen.d) |> 
+  mutate(depth_str = case_when(
+      depth_str == "20m" ~ "Shallow (20m)",
+      depth_str == "150m" ~ "Medium (150m)",
+      depth_str == "250m" ~ "Deep (250 / 270m)",
+      depth_str == "270m" ~ "Deep (250 / 270m)"
+    )) |>
+  mutate(depth_str = factor(depth_str, levels = c("Shallow (20m)", "Medium (150m)", "Deep (250 / 270m)"))) |> 
+  gt::gt(rowname_col = "well", groupname_col = "depth_str")
+    
+
+fraction_active_summary |> 
+    select(well, depth, fraction_active, amendment) |> 
+    mutate(depth = case_when(
+      depth == 20 ~ "Shallow (20m)",
+      depth == 150 ~ "Medium (150m)",
+      depth == 250 ~ "Deep (250 / 270m)",
+      depth == 270 ~ "Deep (250 / 270m)"
+    )) |>
+    filter(amendment != "negative control") |> 
+    pivot_wider(values_from = fraction_active, names_from = well) |> 
+    select(amendment, depth, BA1B, BA4A, BA3A) |> 
+    gt::gt(rowname_col = "amendment", groupname_col = "depth") |> 
+    gt::tab_header(title = "Fraction of Active Cells") |>
+    gt::tab_footnote(
+    footnote = "Where 'active' is defined as isotopic enrichment exceeding 3 standard deviations from the mean of the negative control.",
+    locations = gt::cells_title()
+  ) |> 
+    gt::data_color(columns = BA1B, palette = "Reds") |> 
+    gt::data_color(columns = BA4A, palette = "Blues") |> 
+    gt::data_color(columns = BA3A, palette = "Greens") |> 
+    gt::fmt_percent(columns = c(BA1B, BA4A, BA3A)) |> 
+    gt::cols_align(align = "center")
+```
+
 ## C assimilation rates
 
 ```{r}
 # Define the mean and standard deviation of our natural abundance control
-paste0(
+paste(
   "We set our F13C activity threshold as ",
   round(F13C.activity_threshold, 4),
   " or ",
   round(F13C.activity_threshold, 4) * 100,
   " at. % 13C"
+  )
+
+F13C.activity_threshold <- neg_ctl_mean + (2 * neg_ctl_sd)
+
+paste0(
+  "Our negative controls exhibit a F13C of ", round(neg_ctl_mean, 6), 
+  "+/- ", round(2* neg_ctl_sd, 6), 
+  " (2*SD). Therefore, our F13C activity threshold is ", 
+  round(F13C.activity_threshold, 6), " or ",
+  round(F13C.activity_threshold * 100, 4),
+  " at. % 13C."
   )
 ```
 
@@ -670,7 +964,7 @@ $$
 \mu_i = m_i \times K
 $$
 
-where $µ_i$ is assimilated carbon (*not to be confused with cell-specific growth rate, µ)*.
+where $µ_i$ is mass of assimilated carbon (*not to be confused with cell-specific growth rate, µ)*.
 
 ```{r}
 calculate_assimilated_C <- function(mass, K) {
@@ -783,6 +1077,8 @@ assim_data <- growth_data |>
     # convert to fmol/cell/day by dividing fg / 12.01 fg/fmol
     rC.fmol.d = rC.fg.d / 12.01
   )
+
+
 ```
 
 ### Plot 3: Single Cell Carbon Assimilation Rates
@@ -832,7 +1128,10 @@ p_carbon_assim <- assim_data |>
   #   labels = trans_format("log10", math_format(10^.x))
   # ) +
   # annotation_logticks(sides = "b") +
-  scale_x_continuous(breaks = c(0, 0.2, 0.4, 0.6, .8)) +
+  scale_x_continuous(
+    labels = scales::trans_format("log10", 
+    scales::math_format(10^.x))
+    ) +
   coord_cartesian(xlim = c(0, .85)) +
   facet_wrap(vars(well, depth)) +
   theme_bw() +
@@ -849,12 +1148,281 @@ p_carbon_assim <- assim_data |>
     
 p_carbon_assim
 
-# cowplot::save_plot(
-#   plot = p_carbon_assim, 
-#   filename = "fig_output/carbon_assim.pdf", 
-#   base_height = 7,
-#   base_width = 9
-#   )
+cowplot::save_plot(
+  plot = p_carbon_assim,
+  filename = "fig_output/carbon_assim_old.pdf",
+  base_height = 7,
+  base_width = 9
+  )
+```
+
+#### Plot 3.1: Updated
+
+```{r}
+# define a plotting helper function
+plot_carbon_assim <- function(well_choice) {
+  color_choice = case_when(
+      well_choice == "BA1B" ~ 1,
+      well_choice == "BA3A" ~ 3,
+      well_choice == "BA4A" ~ 2,
+    )
+  
+  # now plot!
+  assim_data |> 
+  filter(amendment != "negative control") |> # filter negative controls out
+  # add "quantified" where sample is quantified if 3sigma > mean neg CTL
+  mutate(quantified = if_else(
+    at13C > (neg_ctl_mean + (3*neg_ctl_sd)),
+    true = TRUE,
+    false = FALSE)
+    ) |>
+  # uncomment this to remove samples that were not above background from plot
+  # filter(quantified) |>
+  filter(well == well_choice) |> 
+  mutate(
+    depth_str = paste0(depth, "m"),
+    depth_str = forcats::fct_reorder(
+      depth_str, depth, .desc = TRUE
+      )
+  ) |> 
+  ggplot() +
+  aes(
+    x = rC.fmol.d,
+    y = depth_str,
+    color = amendment,
+    shape = amendment
+  ) +
+  geom_point(
+    data = function(df) df |> filter(!quantified),
+    position = position_jitterdodge(
+      jitter.width = 0.1,
+      jitter.height = 0,
+      dodge.width = 0.5
+    ),
+    alpha = 0.5,
+    size = 1,
+    color = "gray30"
+  ) +  
+  geom_point(
+    data = function(df) df |> filter(quantified),
+    position = position_jitterdodge(
+      jitter.width = 0.1,
+      jitter.height = 0,
+      dodge.width = 0.5
+    ),
+    alpha = 0.5,
+    size = 1,
+  ) +
+  ggdist::stat_pointinterval(
+    aes(group = amendment), 
+    position = position_dodge(0.5),
+    point_size = 4,
+    color = "black"
+    ) +
+  scale_color_manual(values = amendment_palette) + 
+  #scale_x_continuous(breaks = c(0, 0.2, 0.4, 0.6, .8)) +
+  coord_cartesian(xlim = c(1e-5, 1e0)) +
+  scale_x_log10(
+    labels = scales::trans_format("log10", 
+    scales::math_format(10^.x)),
+    breaks = c(1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0)
+    ) +
+  facet_wrap(vars(well)) +
+  annotation_logticks(sides = "bt") +
+  theme_bw() +
+  labs(
+    x = latex2exp::TeX("fmol C $cell^{-1}$ $day^{-1}$"),
+    y = "",
+    color = "Carbon Source",
+    shape = "Carbon Source"
+  ) +
+  theme_om23() +
+  theme(
+    legend.position = "None", # legend?
+    axis.ticks.y = element_blank(),
+    plot.margin = margin(0.25,0.25,0.25,0.25, "cm"),
+    strip.background = element_rect(fill = well_palette[color_choice]),
+    strip.text = element_text(margin = margin(0.2,0,0.2,0, "cm"))
+  )
+}
+
+plot_carbon_assim("BA1B")
+
+# get a legend
+p_carbon_assim_ba4a_w_legend <- assim_data |> 
+  filter(amendment != "negative control") |> # filter negative controls out
+  # add "quantified" where sample is quantified if 3sigma above the mean natabund ctl
+  mutate(quantified = if_else(
+    at13C > (neg_ctl_mean + (3*neg_ctl_sd)),
+    true = TRUE,
+    false = FALSE
+  )) |> 
+  filter(quantified) |>
+# choose the well:
+  filter(well == "BA4A") |> 
+  mutate(
+    depth_str = paste0(depth, "m"),
+    depth_str = forcats::fct_reorder(
+      depth_str, depth, .desc = TRUE
+      )
+  ) |> 
+  ggplot() +
+  aes(
+    x = rC.fmol.d,
+    y = depth_str
+  ) +
+  geom_point(
+    aes(
+      color = amendment,
+      shape = amendment
+      ),
+  position = position_jitterdodge(
+    jitter.width = .1,
+    dodge.width = .5
+    ),
+  alpha = 0.5,
+  size = 2
+  ) +
+  ggdist::stat_halfeye(
+    aes(group = amendment,
+        ),
+    position = position_dodge(0.5),
+    point_size = 4,
+    #color = "black"
+    ) +
+  scale_color_manual(values = amendment_palette) + 
+  scale_x_continuous(breaks = c(0, 0.2, 0.4, 0.6, .8)) +
+  coord_cartesian(xlim = c(0, .85)) +
+  facet_wrap(vars(well)) +
+  theme_bw() +
+  labs(
+    x = latex2exp::TeX("fmol C $cell^{-1}$ $day^{-1}$"),
+    y = "",
+    color = "Carbon Source",
+    shape = "Carbon Source"
+  ) +
+  theme_om23() +
+  theme(
+    strip.background = element_rect(fill = well_palette[3]),
+    strip.text = element_text(margin = margin(0.2,0,0.2,0, "cm"))
+  )
+p_carbon_assim_ba4a_w_legend
+
+p_carbon_assim_legend <- cowplot::get_legend(p_carbon_assim_ba4a_w_legend)
+
+p_carbon_assim_combined <- cowplot::plot_grid(
+  cowplot::plot_grid(
+    plot_carbon_assim(well_choice = "BA1B"),
+    plot_carbon_assim(well_choice = "BA4A"),
+    plot_carbon_assim(well_choice = "BA3A"),
+    ncol = 3,
+    nrow = 1
+  ),
+  p_carbon_assim_legend,
+  rel_widths = c(0.9, 0.1)
+) 
+  
+
+p_carbon_assim_combined
+
+cowplot::save_plot(
+  filename = "fig_output/carbon_assim_combined.pdf",
+  plot = p_carbon_assim_combined, 
+  base_width = 10, base_height = 4,
+  )
+```
+
+### Table summary of C assimilation rates
+
+Now we output the results of the above plot in table form
+
+```{r}
+assim_data_fmol_summary <- assim_data |> 
+  group_by(well, depth, amendment) |> 
+  filter(amendment != "negative_control") |> 
+  summarize(
+    mean_rC.fmol.d = mean(rC.fmol.d)
+  ) |> 
+  pivot_wider(
+              names_from = "amendment", 
+              values_from = mean_rC.fmol.d) |> 
+  select(-`negative control`) |> 
+  mutate(site = paste0(well, "-", depth, "m")) |> 
+  ungroup()
+
+assim_data_fmol_summary |> 
+  select(-c(well, depth)) |> 
+  gt::gt(rowname_col = "site") |> 
+  gt::tab_header(title = "Carbon Assimilation Rates") |> 
+  gt::tab_footnote(footnote = "All values reported in cell-specific fmol C per day.",
+                   locations = gt::cells_column_labels(
+                     columns = c(acetate, bicarbonate, formate))) |> 
+  gt::tab_row_group(label = "BA1B", rows = c("BA1B-20m", "BA1B-150m", "BA1B-250m")) |> 
+  gt::tab_row_group(label = "BA4A", rows = c("BA4A-20m", "BA4A-150m", "BA4A-270m")) |> 
+  gt::tab_row_group(label = "BA3A", rows = c("BA3A-20m", "BA3A-150m", "BA3A-270m")) |> 
+  gt::tab_spanner(columns = everything(), label = "Amendment") |> 
+  gt::fmt_scientific(columns = c(acetate, bicarbonate, formate)) |> 
+  gt::data_color(columns = c(acetate, bicarbonate, formate), palette = "Blues") 
+```
+
+### Table Summary of % Active Cells
+
+```{r}
+fraction_active_summary <- assim_data |> mutate(
+  quantified = if_else(
+    at13C > (neg_ctl_mean + (3*neg_ctl_sd)),
+    true = TRUE,
+    false = FALSE
+    )
+  ) |>
+  group_by(
+    well, depth, amendment
+  ) |> 
+  summarize(
+    sumQ = sum(quantified),
+    total = n()
+  ) |> 
+  mutate(fraction_active = sumQ / total)
+
+  
+  fraction_active_summary |> 
+    ungroup() |> 
+    filter(amendment != "negative control") |> 
+    ggplot() +
+    aes(
+      x = amendment,
+      y = fraction_active,
+    ) +
+    geom_point() +
+    geom_segment(aes(xend = amendment), yend = 0) +
+    scale_y_continuous(labels = label_percent()) +
+    coord_polar() +
+    facet_wrap(vars(depth, well)) +
+    theme_bw()
+  
+  fraction_active_summary |> 
+    select(well, depth, fraction_active, amendment) |> 
+    mutate(depth = case_when(
+      depth == 20 ~ "Shallow (20m)",
+      depth == 150 ~ "Medium (150m)",
+      depth == 250 ~ "Deep (250 / 270m)",
+      depth == 270 ~ "Deep (250 / 270m)"
+    )) |>
+    filter(amendment != "negative control") |> 
+    pivot_wider(values_from = fraction_active, names_from = well) |> 
+    select(amendment, depth, BA1B, BA4A, BA3A) |> 
+    gt::gt(rowname_col = "amendment", groupname_col = "depth") |> 
+    gt::tab_header(title = "Fraction of Active Cells") |>
+    gt::tab_footnote(
+    footnote = "Where 'active' is defined as isotopic enrichment exceeding 3 standard deviations from the mean of the negative control.",
+    locations = gt::cells_title()
+  ) |> 
+    gt::data_color(columns = BA1B, palette = "Reds") |> 
+    gt::data_color(columns = BA4A, palette = "Blues") |> 
+    gt::data_color(columns = BA3A, palette = "Greens") |> 
+    gt::fmt_percent(columns = c(BA1B, BA4A, BA3A)) |> 
+    gt::cols_align(align = "center")
+  
 ```
 
 ### Plot 4: Single cell K
@@ -951,4 +1519,16 @@ assim_data |>
   theme(
     legend.position = "None"
   )
+```
+
+# How many cells?
+
+How many cells did we analyze? Each cell analyzed is represented by a single ROI. Let's count the number of ROIs.
+
+```{r}
+n_cells <- roi_data |> 
+  summarize(n()) |> 
+  pull()
+
+paste("A total of", n_cells, "individual microbial cells were analyzed by nanoSIMS in this study.")
 ```
