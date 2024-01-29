@@ -11,6 +11,8 @@ editor_options:
 ```{r}
 library(tidyverse)
 library(lubridate)
+source("source/theme_om23.R")
+source("source/color_palettes.R")
 ```
 
 ```{r}
@@ -87,9 +89,20 @@ gc_data_filtered <- gc_data |>
 # Plot
 
 ```{r}
-amendment_palette <- c("#9c0000", "#004e9c", "#003b09")
 
 gc_data_filtered |> 
+  mutate(
+    depth_str = factor(
+      case_when(
+        depth == 20 ~ "Shallow (20m)",
+        depth == 150 ~ "Moderate (150m)",
+        depth == 250 ~ "Deep (250/270m)",
+        depth == 270 ~ "Deep (250/270m)"
+      ),
+    levels = c("Shallow (20m)", "Moderate (150m)", "Deep (250/270m)")
+    )
+    ) |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
   filter(gas == "CH4") |> 
   ggplot(
     aes(x = dt,
@@ -100,26 +113,21 @@ gc_data_filtered |>
         label = file_name
         )
   ) +
-  geom_point() +
-  geom_line() +
-  facet_wrap(vars(well, depth)) +
+  geom_point(size = 3) +
+  geom_line(linewidth = 1) +
+  facet_grid(depth_str~well) +
   scale_color_manual(values = amendment_palette) +
-  #scale_x_continuous(breaks = c(0, 30, 60, 120, 180)) +
+  ggprism::annotation_ticks(sides = "trbl") +
   theme_bw() +
   labs(
     x = "Incubation time (days)",
     #y = latex2exp::TeX("nmol $CH_4$ $ml^{-1}$")
   ) +
+  theme_om23() +
   theme(
-    strip.background = element_rect(fill = "#e3e3e3", color = NA),
-    panel.grid.minor = element_blank(),
-    panel.grid.major.y = element_blank(),
-    strip.background.x = element_rect(fill = "black"),
-    strip.text = element_text(color = "white"),
-    panel.border = element_rect(linewidth = 1.2, color = "black"),
-    axis.ticks.x = element_blank(),
-    #legend.position = "None"
-    )
+    panel.grid = element_blank(),
+    aspect.ratio = 1
+  )
 #plotly::ggplotly()
 ```
 
