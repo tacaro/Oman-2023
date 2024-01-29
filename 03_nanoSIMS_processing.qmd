@@ -390,15 +390,24 @@ effective_label_summary <- growth_data |>
 knitr::kable(effective_label_summary)
 ```
 
-### Plot 1B: Investigate raw 13F trends with effective label
+### Plot raw 13F trends with effective label
 
 ```{r}
 p_13F <- growth_data |> 
   mutate(
     condition = paste(well, amendment),
-    condition = fct_recode(condition, !!!setNames(custom_order, custom_order))
+    condition = fct_recode(condition, !!!setNames(custom_order, custom_order)),
+    well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))
   ) |> 
   filter(amendment != "negative control") |> 
+  mutate(
+    depth_str = factor(case_when(
+      depth == 20 ~ "Shallow (20m)",
+      depth == 150 ~ "Intermediate (150m)",
+      depth == 250 ~ "Deep (250/270m)",
+      depth == 270 ~ "Deep (250/270m)"
+    ), levels = c("Shallow (20m)", "Intermediate (150m)","Deep (250/270m)")
+  )) |> 
   ggplot(
   aes(
     x = at13C,
@@ -436,7 +445,7 @@ p_13F <- growth_data |>
   ) +
   scale_color_manual(values = amendment_palette) +
   scale_x_continuous(labels = scales::label_percent()) +
-  facet_wrap(vars(well, depth), scales = "free_x") +
+  facet_grid(depth_str~well, scales = "free_x") +
   coord_cartesian(xlim = c(0, 1)) +
   labs(
     x = latex2exp::TeX("Cellular $^{13}F$ Enrichment (%)"),
@@ -453,9 +462,10 @@ p_13F
 cowplot::save_plot(plot = p_13F, filename = "fig_output/p13F.pdf", base_height = 8, base_width = 12)
 ```
 
-### Plot 2: Growth Rates
+### Plot Growth Rates
 
 ```{r}
+#| eval: false
 p_growth_rate <- growth_data |> 
   mutate(
     condition = paste(well, amendment),
@@ -496,9 +506,10 @@ cowplot::save_plot(plot = p_growth_rate, filename = "fig_output/p_growth_rate.pd
                    base_height = 8, base_width = 12)
 ```
 
-### Plot 2B: Generation Times
+### Plot Generation Times
 
 ```{r}
+#| eval: false
 # summarize gentime for plotting
 gen_data <- growth_data |> 
   group_by(well, depth, amendment) |> 
@@ -667,7 +678,6 @@ p_growth_combined
 #### Plot 2.2: Updated gen time
 
 ```{r}
-
 growth_data_summary <- growth_data |> 
   filter(amendment != "negative control") |> # filter negative controls out
   # add "quantified" where sample is quantified if 3sigma > mean neg CTL
@@ -813,28 +823,6 @@ growth_data_summary |>
   gt::gt(rowname_col = "well", groupname_col = "depth_str")
     
 
-fraction_active_summary |> 
-    select(well, depth, fraction_active, amendment) |> 
-    mutate(depth = case_when(
-      depth == 20 ~ "Shallow (20m)",
-      depth == 150 ~ "Medium (150m)",
-      depth == 250 ~ "Deep (250 / 270m)",
-      depth == 270 ~ "Deep (250 / 270m)"
-    )) |>
-    filter(amendment != "negative control") |> 
-    pivot_wider(values_from = fraction_active, names_from = well) |> 
-    select(amendment, depth, BA1B, BA4A, BA3A) |> 
-    gt::gt(rowname_col = "amendment", groupname_col = "depth") |> 
-    gt::tab_header(title = "Fraction of Active Cells") |>
-    gt::tab_footnote(
-    footnote = "Where 'active' is defined as isotopic enrichment exceeding 3 standard deviations from the mean of the negative control.",
-    locations = gt::cells_title()
-  ) |> 
-    gt::data_color(columns = BA1B, palette = "Reds") |> 
-    gt::data_color(columns = BA4A, palette = "Blues") |> 
-    gt::data_color(columns = BA3A, palette = "Greens") |> 
-    gt::fmt_percent(columns = c(BA1B, BA4A, BA3A)) |> 
-    gt::cols_align(align = "center")
 ```
 
 ## C assimilation rates
@@ -1084,6 +1072,7 @@ assim_data <- growth_data |>
 ### Plot 3: Single Cell Carbon Assimilation Rates
 
 ```{r}
+#| eval: false
 assim_summary <- assim_data |> 
   group_by(well, depth, amendment) |> 
   summarize(
@@ -1422,6 +1411,7 @@ fraction_active_summary <- assim_data |> mutate(
     gt::data_color(columns = BA3A, palette = "Greens") |> 
     gt::fmt_percent(columns = c(BA1B, BA4A, BA3A)) |> 
     gt::cols_align(align = "center")
+
   
 ```
 
@@ -1531,4 +1521,13 @@ n_cells <- roi_data |>
   pull()
 
 paste("A total of", n_cells, "individual microbial cells were analyzed by nanoSIMS in this study.")
+```
+
+# Export to cache
+
+```{r}
+# growth rate data
+saveRDS(growth_data, "cache/SIMS_growth_data.RDS")
+saveRDS(assim_data, "cache/SIMS_assim_data.RDS")
+saveRDS(growth_data_summary, "cache/SIMS_growth_data_summary.RDS")
 ```
