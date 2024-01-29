@@ -200,17 +200,16 @@ samples |>
     aes(
       x = as.factor(gc_sample_id),
       y = peak_area,
-      color = amendment,
-      fill = amendment
+      #color = amendment,
+      #fill = amendment
     )
   ) +
-  geom_col() +
+  geom_point() +
   facet_wrap(vars(well), scales = "free_x") +
-  coord_flip() +
-  scale_x_discrete() +
   theme_bw() +
   theme(
-    legend.position = "bottom"
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 90, hjust = 1)
   )
 ```
 
@@ -238,48 +237,15 @@ volume_to_moles <- function(pressure_atm = 0.8, vol_mL, R = 0.082057338	, temp_C
   # average atmospheric pressure in boulder is about 0.8 atm
   temp_K = temp_C + 273 # convert ˚C to ˚K
   vol_L = vol_mL / 1000 # convert mL to L
-  n_moles = (pressure_atm * vol_L) / (R * temp_K)
-  return(n_moles)
+  moles = (pressure_atm * vol_L) / (R * temp_K)
+  return(moles)
 }
 
 volume_to_moles(pressure_atm = 0.8, vol_mL = 0.5, temp_C = 20) # 1.6637e-05
 ```
 
 ```{r}
-gc_standard_curve <- standards |>
-  ungroup() |> 
-  relocate(gas, peak_area, sample_volume) |> 
-  select(-c(retention_time, correction_factor, peak_height, gc_sample_id, column, carrier)) |> 
-  mutate(
-    mol_total = volume_to_moles(vol_mL = sample_volume), # moles of gas injected
-    nmol_total = mol_total / 1E-9, # nmol gas injected (total),
-    nmol_specific = nmol_total * .01, # 1% of the gas either CO2 or CH4
-  )
-```
 
-```{r}
-# Tidy the fits
-CH4_curve_fit <- lm(data = filter(gc_standard_curve, gas == "CH4"), peak_area ~ nmol_specific) |> broom::tidy() |> 
-  mutate(gas = "CH4") |> 
-  select(-c(std.error, statistic, p.value)) |> 
-  pivot_wider(names_from = term, values_from = estimate)
-
-CH4_curve_slope <- CH4_curve_fit |> pull(nmol_specific)
-CH4_curve_int <- CH4_curve_fit |> pull(`(Intercept)`)
-CH4_curve_equation <- paste("y =", round(CH4_curve_slope, 2), "x", "+", round(CH4_curve_int, 2))
-
-`CO2_curve_fit` <- lm(data = filter(gc_standard_curve, gas == "CO2"), peak_area ~ nmol_specific) |> 
-  broom::tidy() |> 
-  mutate(gas = "CO2") |> 
-  select(-c(std.error, statistic, p.value)) |> 
-  pivot_wider(names_from = term, values_from = estimate)
-
-CO2_curve_slope <- CO2_curve_fit |> pull(nmol_specific)
-CO2_curve_int <- CO2_curve_fit |> pull(`(Intercept)`)
-CO2_curve_equation <- paste("y =", round(CO2_curve_slope, 2), "x", "+", round(CO2_curve_int, 2))
-
-CH4_curve_equation
-CO2_curve_equation
 ```
 
 Now we have a calibration that we can use to convert peak area to partial pressure:
@@ -288,7 +254,7 @@ $$
 P = \frac{nRT}{V}
 $$
 
-but first we convert from peak area to $n$ nanomoles of gas injected:
+but first we convert from peak area to $n$ moles of gas injected:
 
 $$
 \begin{aligned}

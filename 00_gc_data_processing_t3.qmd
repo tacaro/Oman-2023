@@ -290,12 +290,10 @@ samples |>
   ggplot(
     aes(
       x = as.factor(gc_sample_id),
-      y = peak_area,
-      color = amendment,
-      fill = amendment
+      y = peak_area
     )
   ) +
-  geom_col() +
+  geom_point() +
   facet_wrap(vars(well), scales = "free_x") +
   coord_flip() +
   scale_x_discrete() +
