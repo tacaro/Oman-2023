@@ -1,0 +1,307 @@
+---
+title: "GC Data Analysis"
+author: "Tristan Caro"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+## How does this work?
+
+This script runs after the `00_GC-Data-Reduction.qmd` script. That script outputs `.csv` data tables that we re-upload into R in order to compartmentalize our analyses. The `.csv` files come pre-loaded in this repository, but one can inspect the data reduction script to see its inner workings or if additional GC data must be added.
+
+# Setup
+
+## Libraries
+
+```{r}
+library(tidyverse) # CRAN v2.0.0
+library(lubridate) # CRAN v1.9.3
+source("source/theme_om23.R") # our ggplot theme
+source("source/color_palettes.R") # our color palette swatches
+```
+
+## Import data
+
+```{r}
+# import individual tables
+gc_table_0314 <- read_csv("data/gc_data/gc_table_0314.csv")
+gc_table_0601 <- read_csv("data/gc_data/gc_table_0601.csv")
+gc_table_0811 <- read_csv("data/gc_data/gc_table_0811.csv")
+gc_table_0929 <- read_csv("data/gc_data/gc_table_0929.csv")
+
+# a list of runs to exclude because of bad injection
+excluded_runs <- readxl::read_excel("data/gc_data/excluded_gc_data.xlsx")
+```
+
+### Create a date extraction function
+
+```{r}
+extract_date <- function(input_string) {
+  # Define the regular expression pattern to match the date format
+  date_pattern <- "\\d{2}[A-Z]{3}\\d{2}"
+
+  # Use str_extract to find the first occurrence of the pattern in the input string
+  extracted_date <- str_extract(input_string, date_pattern)
+
+  return(extracted_date)
+}
+
+# Test the function
+input <- "data/gc_data/13MAR23FID_TC_16.RES"
+result <- extract_date(input)
+message(paste("Test:", input, "is parsed as", result, ""))
+```
+
+Now we combine the data tables and add in their sampling dates.
+
+```{r}
+gc_data <- 
+  bind_rows(gc_table_0314, gc_table_0601, gc_table_0811, gc_table_0929) |> 
+  mutate(
+    sampling_date = dmy(extract_date(file_name)),
+    start_date = dmy("07FEB23"), # the SIP experiment state date
+    dt = sampling_date - start_date
+  ) |> 
+  rename(gc_sample_id = sample_type) |> 
+  # fix mislabeled gas name
+  mutate(
+    gas = case_when(
+      gas == "C02" ~ "CO2",
+      TRUE ~ gas
+    )
+  ) |> 
+  # parse sample volume
+  mutate(
+    sample_volume = as.numeric(str_extract(gc_sample_id, "\\d+(\\.\\d+)?(?=ml)"))
+  )
+
+# remove individual tables
+rm(gc_table_0314, gc_table_0601, gc_table_0811, gc_table_0929)
+```
+
+# Samples
+
+## Filter out bad runs and add metadata
+
+```{r}
+excluded_list <- excluded_runs$excluded
+
+gc_data_filtered <- gc_data |> 
+  filter(!file_name %in% excluded_list)
+
+
+samples <- gc_data_filtered |> 
+  filter(
+    str_detect(gc_sample_id, "BA")
+  ) |> 
+  mutate(
+    well = case_when(
+      str_detect(gc_sample_id, "BA4A") ~ "BA4A",
+      str_detect(gc_sample_id, "BA3A") ~ "BA3A",
+      str_detect(gc_sample_id, "BA1B") ~ "BA1B"
+    ),
+    depth = case_when(
+      str_detect(gc_sample_id, "20") ~ 20,
+      str_detect(gc_sample_id, "150") ~ 150,
+      str_detect(gc_sample_id, "250") ~ 250,
+      str_detect(gc_sample_id, "270") ~ 270
+    ),
+    amendment = case_when(
+      str_detect(gc_sample_id, "Ac") ~ "Acetate",
+      str_detect(gc_sample_id, "Form") ~ "Formate",
+      str_detect(gc_sample_id, "Bic") ~ "Bicarbonate",
+      str_detect(gc_sample_id, "AC") ~ "Acetate",
+      str_detect(gc_sample_id, "FORM") ~ "Formate",
+      str_detect(gc_sample_id, "BIC") ~ "Bicarbonate",
+    )
+  ) |> 
+  mutate(sample_set = "B")
+```
+
+## Add t0 data
+
+```{r}
+t0 <- tibble(
+  well = c("BA3A", "BA4A", "BA1B")
+) |> 
+  crossing(
+    depth = c(20, 150, 270),
+    amendment = c("Bicarbonate", "Formate", "Acetate"),
+    gas = c("CH4", "CO2")
+  ) |> 
+  mutate(
+    depth = case_when(
+      depth == 270 & well == "BA1B" ~ 250,
+      TRUE ~ depth
+    )
+  ) |> 
+  mutate(
+    nmol_per_ml = 0,
+    start_date = dmy("07FEB23"),
+    sampling_date = dmy("07FEB23"),
+    dt = sampling_date - start_date,
+    peak_area = 0
+    )
+
+samples_w_t0 <- samples |> 
+  bind_rows(t0) 
+```
+
+# Plot
+
+```{r}
+p_gc_peak_area <- samples_w_t0 |> 
+  mutate(
+    depth_str = factor(
+      case_when(
+        depth == 20 ~ "Shallow (20m)",
+        depth == 150 ~ "Moderate (150m)",
+        depth == 250 ~ "Deep (250/270m)",
+        depth == 270 ~ "Deep (250/270m)"
+      ),
+    levels = c("Shallow (20m)", "Moderate (150m)", "Deep (250/270m)")
+    )
+    ) |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
+  filter(gas == "CH4") |> 
+  ggplot(
+    aes(x = dt,
+        y = peak_area,
+        color = amendment,
+        shape = amendment,
+        linetype = amendment,
+        label = file_name
+        )
+  ) +
+  geom_point(size = 3) +
+  geom_line(linewidth = 1) +
+  facet_grid(depth_str~well) +
+  scale_color_manual(values = amendment_palette) +
+  coord_cartesian(xlim = c(0, 250)) +
+  ggprism::annotation_ticks(sides = "trbl") +
+  theme_bw() +
+  labs(
+    x = "Incubation time (days)",
+    y = "Peak Area",
+    color = "Amendment", shape = "Amendment", linetype = "Amendment"
+  ) +
+  theme_om23() +
+  theme(
+    panel.grid = element_blank(),
+    aspect.ratio = 1,
+    panel.spacing = unit(0.1, "cm")
+  )
+
+cowplot::save_plot(
+  filename = "fig_output/p_gc_peak_area.pdf",
+  plot = p_gc_peak_area,
+  base_height = 10,
+  base_width = 10
+)
+```
+
+# Generate standard curve
+
+Subset the standards from the samples. These all use the 1% gas mix and have "mix" in their name.
+
+```{r}
+standards_ext <- readxl::read_excel("data/gc_data/gc_standard_calibration_data.xlsx") |> 
+  rename(volume_inj = `Volume Injected (mL)`) |> 
+  select(Date, volume_inj, `CH4 (FID) Peak Area`) |> 
+  rename(CH4.Area = `CH4 (FID) Peak Area`)
+
+standards_ext |> 
+  filter(volume_inj != 1) |> 
+  filter(!is.na(CH4.Area)) |> 
+  ggplot() +
+  aes(
+    x = volume_inj,
+    y = CH4.Area
+  ) +
+  geom_point() +
+  coord_cartesian(xlim = c(0, 1), ylim = c(0, 40000), expand = FALSE) +
+  stat_smooth(method = "lm", formula = 'y~x', fullrange = TRUE) +
+  ggpmisc::stat_poly_eq(
+    use_label(c("eq", "R2"))
+  ) +
+  labs(
+    x = "Injection Volume (mL)",
+    y = "Peak Area (CH4)"
+  ) +
+  theme_classic()
+```
+
+Here, we calculate the number of moles injected into our standard curve using the noble gas relationship:
+
+$$
+n = \frac{PV}{RT}
+$$
+
+where $n$ is the number of moles injected, P is the pressure in `atm`, V is the volume in `mL`, R is the gas constant that relates these values: $R = 0.082057338 \space L\cdot atm \cdot K^{-1} mol^{-1}$
+
+We can calculate the moles of gas (per mL) injected, then we can calculate the mass (µg) of gas per mL injected. The MW of methane is 16.04 g/mol.
+
+$$
+\begin{aligned}
+g &= mol * \frac{g}{mol} \\
+µg &= g * (1\times10^{-6})
+\end{aligned}
+$$
+
+The below function converts volume of gas injected to moles:
+
+```{r}
+
+volume_to_moles <- function(pressure_atm = 0.8, vol_mL, R = 0.082057338, temp_C = 20) {
+  # n = PV/RT
+  # R = 0.082057338	L.atm.K-1.mol-1
+  # atmospheric pressure in Boulder CO is about 0.8 atm
+  temp_K = temp_C + 273 # convert deg C to deg K
+  vol_L = vol_mL / 1000 # convert vol mL to L
+  n_moles = (pressure_atm * vol_L) / (R * temp_K)
+  return(n_moles)
+}
+
+# test it:
+volume_to_moles(pressure_atm = 0.8, vol_mL = 0.5, temp_C = 20) # 1.6637e-05
+```
+
+Now we can convert the peak area measured on the GC to the number of moles (or nanomoles) of gas injected:
+
+$$
+Area = nx +b \\
+n = \frac{Area - b}{x}
+$$
+
+where Area is the peak area measured on the GC, n is the number of moles of gas injected, and b and x are the intercept and slope of their linear relationship.
+
+Let's define this linear relationship: x = volume_inj, y = CH4.Area
+
+```{r}
+ch4lm <- lm(data = standards_ext, CH4.Area ~ volume_inj) |> 
+  broom::tidy()
+
+# Pull coefficients
+ch4lm_slope <- ch4lm |> filter(term == "volume_inj") |> pull(estimate)
+ch4lm_intercept <- ch4lm |> filter(term == "(Intercept)") |> pull(estimate)
+ch4lm_std_error <- ch4lm |> filter(term == "volume_inj") |> pull(std.error)
+```
+
+Define a function to convert peak area to moles gas:
+
+```{r}
+peak_area_to_moles_per_mL <- function(peak_area, vol_mL, slope, intercept) {
+  mols = (peak_area - intercept / slope) # n = (A-b) / x
+  mol_per_mL = mol / vol_mL # normalize by injection volume
+  return(
+    case_when(
+      mol_per_mL > 0 ~ mol_per_mL,
+      mol_per_mL <= 0 ~ 0 # negative values are zero
+      )
+  )
+}
+```
+
+Now, we have a calibration that can be used to convert peak area to partial pressure of a specific gas (methane, in our case).
