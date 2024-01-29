@@ -1,0 +1,20 @@
+---
+title: "Scaling Up"
+author: "Tristan Caro"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+# How does this work?
+
+The goal of this script is to take our cell-specific rates of C-assimilation and scale them up. Specifically, we are curious about m/km-scale models of C assimilation/H2 utilization.
+
+1.  We begin by importing the data output from `03_nanoSIMS_processing.qmd` and summarizing it by depth and well type.
+
+## Setup
+
+```{r}
+library(tidyverse)
+```
