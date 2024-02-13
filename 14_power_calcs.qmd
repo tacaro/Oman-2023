@@ -1,0 +1,160 @@
+---
+title: "14: Power Calculations"
+format: pdf
+editor: visual
+editor_options: 
+  chunk_output_type: console
+include-in-header: \usepackage[makeroom]{cancel}
+---
+
+## Setup
+
+```{r}
+rm(list=ls()) # clear the environment
+library(tidyverse)
+source("source/theme_om23.R")
+source("source/color_palettes.R")
+```
+
+Load files
+
+```{r}
+assim_data <- read_rds("cache/SIMS_assim_data.RDS") |> 
+  # trim out columns not needed for this exercise:
+  select(sample_id, well, depth, amendment, at13C, mu.d, 
+         gen.d, K, cell.C.fg, rC.fmol.d)
+```
+
+# Energy requirement calculations
+
+Hoehler et al. in their 2023 paper consider the specific carbon turnover rate $\mu^*$ in units of grams carbon biomass synthesized per gram standing carbon biomass per time.
+
+Dividing $\mu^*$ by MSP gives a quantity with units of g C biosynthesis per Joule $(g \space C \space J^{-1})$ which they refer to as biosynthesis yield, or $Y^*$.
+
+$$
+Y^* = \frac{\mu^*}{MSP} = \frac{g \: C_{biosynthesis} \times s^{-1} \times g \: C_{biomass}}
+{J \times s^{-1} \times g \: C_{biomass}^{-1} } =
+\frac{g \: C_{biosynthesis}}{J}
+$$
+
+which is often expressed using kilojoules instead of Joules:
+
+$$
+Y^* = \frac{g \: C_{biosynthesis}}{J} \times \frac{1J}{1000 kJ} = g \: C_{biosynthesis} \: kJ^{-1}
+$$
+
+$Y^*$ relates carbon turnover to energy utilization.
+
+Hoehler et al. find that biosynthesis yield $(Y^*)$ or anaerobic organisms is related to mass-specific carbon turnover rate $(yr^{-1})$ by the relationship
+
+$$
+Y^* = \frac{0.03 \pm 0.017 \: g \space C}{kJ} \times \frac{1000kJ}{1J} = 
+\frac{30 \: g \: C \pm 17}{J}
+$$ where $\mu^*$ is the mass-specific carbon turnover rate in reciprocal years.
+
+Using this relationship, we can approximate the mass-specific power of the organisms in each sampling environment by assuming that the biosynthesis yield value remains constant.
+
+$$
+MSP = \frac{\mu^*}{Y^*}
+$$
+
+From our data, we know the biomass generation time of each individual cell in units of days $T_G \: (days)$ . We convert this to a biomass generation time in years as $T_G \: (years) = T_G \: (days) * \frac{1yr}{365 \: days}$
+
+From this we can take the reciprocal of the value to get our specific cell turnover rate in years (i.e., instead of saying how many years per cell turnover, we say how many cell turnovers per year:
+
+$$
+\mu = \frac{1}{T_G \: (yr)} = (yr^{-1})
+$$
+
+We can convert this to specific carbon turnover rate $(\mu^*)$ by normalizing by the cell's biomass:
+
+$$
+\mu^* = \frac{\mu}{g \: C_{biomass}}
+$$
+
+And using the power law Hoehler et al. define for biosynthesis yield:
+
+$$
+\begin{aligned}
+Y^*[g \: C_{biosynthesis} J^{-1}] &= 
+\frac{\mu ^*[g \: C_{biosynthesis} \times s^{-1} \times g \: C_{biomass} ]}
+{MSP[ J \times s^{-1} \times g \: C_{biomass}^{-1}]} =
+30 \pm 17 \: g \: C \: J^{-1} \\
+\downarrow \\
+30 \pm 17 \: g \: C \: J^{-1} &= 
+\frac{
+\mu ^*[g \: C_{biosynthesis} \times s^{-1} \times g \: C_{biomass} ]}
+{MSP[ J \times s^{-1} \times g \: C_{biomass}^{-1}]
+} \\
+\downarrow \\
+{MSP[ J \times s^{-1} \times g \: C_{biomass}^{-1}]} &= 
+\frac{
+\mu ^*[g \: C_{biosynthesis} \times s^{-1} \times g \: C_{biomass} ]}
+{30 \pm 17 \: g \: C \: J^{-1}
+}
+\end{aligned}
+$$
+
+### Calculations
+
+```{r}
+assim_data_summary <- assim_data |> 
+  filter(amendment != "negative control") |> 
+  select(-c(at13C, K, sample_id)) |> 
+  rename(fmolC_per_cell_day = rC.fmol.d, TG.d = gen.d) |> 
+  mutate(
+    TG.yrs = TG.d / 365,
+    turnover_rate_yr = 1 / TG.yrs,
+    mu_star = turnover_rate_yr / cell.C.fg # biosynthesis rate per fg C in biomass
+  ) |> 
+  filter(mu_star > 0) |> 
+  mutate(
+    well = factor(well, levels = c("BA1B", "BA4A", "BA3A")),
+    depth_str = factor(case_when(
+      depth == 20 ~ "Shallow (20m)",
+      depth == 150 ~ "Intermediate (150m)",
+      depth == 250 ~ "Deep (250/270m)",
+      depth == 270 ~ "Deep (250/270m)"
+    ),
+    levels = c("Shallow (20m)","Intermediate (150m)","Deep (250/270m)")
+    )
+  )
+
+assim_data_summary |> 
+  ggplot(
+    aes(
+      x = mu_star,
+      y = amendment,
+      color = amendment
+    )
+  ) +
+  ggdist::stat_pointinterval(point_interval = "mean_qi") +
+  scale_x_log10() +
+  scale_color_manual(values = well_palette) +
+  facet_grid(depth_str~well) +
+  labs(
+    x = latex2exp::TeX("Mass specific carbon turnover rate $(yr^{-1})$"),
+    y = ""
+  ) +
+  theme_om23() +
+  theme(
+    aspect.ratio = 1,
+    panel.spacing = unit(0.15, "cm"),
+    legend.position = "None"
+  )
+
+```
+
+### Definitions
+
+Power in Watts: $W = J \times s^{-1}$
+
+> Energy per unit time
+
+Mass-specific power (MSP) in Watts per grams carbon: $MSP = W \times (g C)^{-1} = J \times s^{-1} \times (gC)^{-1}$
+
+> The relationship between biomass and energy utilization rate
+
+Biosynthesis yield: $Y^* = gC \times kJ^{-1}$
+
+> Carbon turnover per unit of energy
