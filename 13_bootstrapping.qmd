@@ -1,0 +1,572 @@
+---
+title: "13b: Bootstrapping"
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    code-fold: true
+    code-line-numbers: true
+
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+## Setup
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+set.seed(123) # for reproducible randomness
+
+# color palette
+source("source/color_palettes.R")
+# theme
+source("source/theme_om23.R")
+```
+
+```{r}
+assim_data <- read_rds("cache/SIMS_assim_data.RDS") |> 
+  # trim out columns not needed for this exercise:
+  select(sample_id, well, depth, amendment, at13C, mu.d, 
+         gen.d, K, cell.C.fg, rC.fmol.d)
+
+BA_cell_counts <- readxl::read_excel(
+  "data/Templeton 2021/Table X. BA core Cell counts.xlsx",
+  range = "A1:D106",
+  col_types = c("text", "text", "numeric", "numeric")) |> 
+  filter(!is.na(Site)) |> 
+  mutate(core = paste0(Site, Hole)) |> 
+  rename(cells_per_g = `Cell abundance (cells / g)`,
+         depth = `target depth (mbs)`) |> 
+  dplyr::select(core, cells_per_g, depth) |> 
+  # below detection limit cells = 0
+  mutate(cells_per_g = ifelse(is.na(cells_per_g), 0, cells_per_g))
+```
+
+```{r}
+BA4A_data <- readxl::read_excel("data/Kelemen 2020/BA4A_T14.xlsx", skip = 2) |> 
+  filter(`Depth CAD (m)` > 15) |> 
+  select(`Bulk density (g/cm³)`, `Porosity (vol%)`) |> 
+  mutate(core = "BA4A")
+
+BA1B_data <- readxl::read_excel("data/Kelemen 2020/BA1_T12.xlsx", skip = 2) |> 
+  filter(`Depth CAD (m)` > 15) |> 
+  select(`Bulk density (g/cm³)`, `Porosity (vol%)`) |>
+  mutate(core = "BA1B")
+
+BA3A_data <- readxl::read_excel("data/Kelemen 2020/BA3A_T11.xlsx", skip = 2) |> 
+  filter(`Depth CAD (m)` > 15) |> 
+  select(`Bulk density (g/cm³)`, `Porosity (vol%)`) |> 
+  mutate(core = "BA3A")
+
+BA_density_porosity_full <- bind_rows(BA4A_data, BA1B_data, BA3A_data) |> 
+  select(core, everything()) |> 
+  rename(porosity = `Porosity (vol%)`,
+         density = `Bulk density (g/cm³)`)
+
+BA_density_porosity <- bind_rows(BA4A_data, BA1B_data, BA3A_data) |> 
+  select(core, everything()) |> 
+  group_by(core) |> 
+  summarize(
+    porosity_mean = mean(`Porosity (vol%)`),
+    porosity_SD = sd(`Porosity (vol%)`),
+    porosity_max = max(`Porosity (vol%)`),
+    porosity_min = min(`Porosity (vol%)`),
+    density_g_cm3_mean = mean(`Bulk density (g/cm³)`),
+    density_g_cm3_SD = sd(`Bulk density (g/cm³)`)
+  )
+```
+
+```{r}
+BA_density_porosity_full |> 
+  ggplot(aes(x = porosity, fill = core)) +
+  geom_histogram() + facet_wrap(vars(core), ncol = 1) +
+  theme_bw()
+```
+
+# Define our conversion function
+
+```{r}
+cell_specific_to_m3 <- function(fmol_day, cell_density, phi) {
+  # fmol_day: cell-specific carbon assimilation rate in fmol C per cell per day
+  # cell_density: cell density in cells / ml
+  # phi: porosity as a fraction (not a %)
+  return(
+    fmol_day * cell_density * phi * 1e6
+  )
+}
+```
+
+# Create our bootstrapped datasets
+
+So, now we have cell-specific rates of carbon assimilation for three different carbon sources in units of $\text{fmol C } cell^{-1} \space day^{-1}$ .
+
+We can convert to a volume-specific rate of carbon assimilation by multiplying by the cell density of our fluids.
+
+$$
+\text{fmol C } cell^{-1} \space day^{-1} \times \frac{cell}{mL} = \text{fmol C day}^{-1} \space mL ^{-1}
+$$
+
+Then we can convert from volume of fluid to volume of rock:
+
+$$
+\frac{\text{fmol C day}^{-1}}{ ml^{-1}_{f}} \times \phi \left( \frac{ml_{f}}{ml_{T}}\right) =
+\text{fmol C day}^{-1} ml^{-1}_{T}
+$$
+
+where $\phi$ is the porosity of the rock as a fraction, $f$ and $T$ correspond to volume of fluid and total rock, respectively. In our case, Harzburgites $\phi = 0.02$ and Dunites $\phi = 0.03$.
+
+> For example, 1mL of fluid in a rock with porosity $\phi = 0.02$ would be spread over 50mL of rock.
+
+The value expressed in these units corresponds to the daily assimilation rate of carbon per volume of rock.
+
+We also use the density of the rock to express this in units of mass.
+
+$$
+\text{fmol C day}^{-1} ml^{-1}_T \times \rho \left[ \frac{g}{ml_T} \right] = 
+\text{fmol C day}^{-1} g^{-1}
+$$
+
+where $\rho$ is bulk rock density in g/ml (g/cm\^3) ( $\rho = 2.65$ ). See Kelemen et al. 2020 for further discussion of porosity and density estimates.
+
+But let's convert this to meter and km of cubic rock instead (not mass):
+
+$$
+\frac{\text{fmol C}}{day \cdot ml_{T}}  \times \frac{1000ml}{1L} \times \frac{1000L}{1m^{3}} \\
+ = \frac{fmol \space C}{day \cdot m^{3}}
+$$
+
+Or simplified:
+
+$$
+\frac{\text{fmol C}}{m^3} = \frac{\text{fmol C}}{cell^-1 \space day^{-1}} \times 
+\frac{cell}{mL} \times
+\phi_{mlf/mlT} \times
+10^6 
+$$
+
+$$
+\frac{\text{fmol C}}{m^3} = x \cdot y \cdot \phi \cdot 10^6
+$$
+
+Where our three key parameters are:
+
+1.  $\phi$ as a fraction representing the porosity of the rock ( $ml_{fluid} / ml_{total}$ ).
+2.  $x$ is our cell-specific carbon assimilation rate in units of $fmol \space C \cdot day^{-1} \cdot cell^{-1}$.
+3.  $y$ represents the density of the cells in $cells/mL$.
+4.  $10^6$ represents the conversion factor from $ml$ to $m^3$.
+
+We can write this as a function:
+
+```{r}
+cell_specific_to_m3 <- function(fmol_day, cell_density, phi) {
+  # fmol_day: cell-specific carbon assimilation rate in fmol C per cell per day
+  # cell_density: cell density in cells / ml
+  # phi: porosity as a percent (as it is most often reported)
+  phi_frac = phi / 100 
+  return(
+    # convert porosity % to porosity fraction
+    fmol_day * cell_density * phi * 1e6
+  )
+}
+```
+
+## BA1B
+
+```{r}
+BA1B_porosity <- BA_density_porosity_full |> 
+  filter(core == "BA1B") |> 
+  select(porosity)
+  
+BA1B_cells <- BA_cell_counts |> 
+  filter(core == "BA1B") |> 
+  select(cells_per_g)
+
+BA1B_C_rate <- assim_data |> 
+  filter(amendment == "bicarbonate") |> 
+  filter(well == "BA1B") |> 
+  select(rC.fmol.d) |> 
+  rename(fmol_cell_day = rC.fmol.d)
+
+# Boostrap porosity for BA1B
+BA1B_porosity.boot <- BA1B_porosity |> 
+  bootstraps(times = 10000) |> 
+  mutate(resampled_data = map(splits, ~.x$data$porosity[.x$in_id]),
+    resampled_data_mean = map_dbl(resampled_data, mean),
+    resampled_data_sd = map_dbl(resampled_data, sd),
+    core = "BA1B"
+  )
+
+
+BA1B_cells.boot <- BA1B_cells |> 
+  bootstraps(times = 10000) |> 
+  mutate(
+    resampled_data = map(splits, ~.x$data$cells_per_g[.x$in_id]),
+    resampled_data_mean = map_dbl(resampled_data, mean),
+    resampled_data_sd = map_dbl(resampled_data, sd),
+    core = "BA1B"
+  )
+
+BA1B_C_rate.boot <- BA1B_C_rate |> 
+  bootstraps(times = 10000) |> 
+  mutate(
+    resampled_data = map(splits, ~.x$data$fmol_cell_day[.x$in_id]),
+    resampled_data_mean = map_dbl(resampled_data, mean, na.rm = TRUE),
+    resampled_data_sd = map_dbl(resampled_data, sd, na.rm = TRUE),
+    core = "BA1B"
+  )
+
+```
+
+Do calculations on bootstrapped dataset
+
+```{r}
+BA1B_complete <- tibble(
+  # construct a tibble from our bootstrapped means
+  porosity.boot = BA1B_porosity.boot |> pull(resampled_data_mean),
+  cells.boot = BA1B_cells.boot |> pull(resampled_data_mean),
+  C_rate.boot = BA1B_C_rate.boot |> pull(resampled_data_mean)
+  ) |> 
+  mutate(
+  fmol_C_m3.boot = cell_specific_to_m3(
+    fmol_day = C_rate.boot, 
+    cell_density = cells.boot, 
+    phi = porosity.boot
+    )
+  ) |> 
+  mutate(core = "BA1B")
+```
+
+```{r}
+BA1B_complete |> 
+  ggplot(aes(x = fmol_C_m3.boot)) +
+  geom_histogram() +
+  geom_vline(aes(xintercept = mean(fmol_C_m3.boot)), color = "red") +
+  geom_vline(aes(xintercept = mean(fmol_C_m3.boot) + sd(fmol_C_m3.boot)), color = "red", linetype = "dashed") +
+  geom_vline(aes(xintercept = mean(fmol_C_m3.boot) - sd(fmol_C_m3.boot)), color = "red", linetype = "dashed") +
+  theme_bw()
+  
+```
+
+## BA4A
+
+```{r}
+BA4A_porosity <- BA_density_porosity_full |> 
+  filter(core == "BA4A") |> 
+  select(porosity)
+  
+BA4A_cells <- BA_cell_counts |> 
+  filter(core == "BA4A") |> 
+  select(cells_per_g)
+
+BA4A_C_rate <- assim_data |> 
+  filter(amendment == "bicarbonate") |> 
+  filter(well == "BA4A") |> 
+  select(rC.fmol.d) |> 
+  rename(fmol_cell_day = rC.fmol.d)
+
+# Boostrap porosity for BA1B
+BA4A_porosity.boot <- BA4A_porosity |> 
+  bootstraps(times = 10000) |> 
+  mutate(resampled_data = map(splits, ~.x$data$porosity[.x$in_id]),
+    resampled_data_mean = map_dbl(resampled_data, mean),
+    resampled_data_sd = map_dbl(resampled_data, sd),
+    core = "BA4A"
+  )
+
+
+BA4A_cells.boot <- BA4A_cells |> 
+  bootstraps(times = 10000) |> 
+  mutate(
+    resampled_data = map(splits, ~.x$data$cells_per_g[.x$in_id]),
+    resampled_data_mean = map_dbl(resampled_data, mean),
+    resampled_data_sd = map_dbl(resampled_data, sd),
+    core = "BA4A"
+  )
+
+BA4A_C_rate.boot <- BA4A_C_rate |> 
+  bootstraps(times = 10000) |> 
+  mutate(
+    resampled_data = map(splits, ~.x$data$fmol_cell_day[.x$in_id]),
+    resampled_data_mean = map_dbl(resampled_data, mean, na.rm = TRUE),
+    resampled_data_sd = map_dbl(resampled_data, sd, na.rm = TRUE),
+    core = "BA4A"
+  )
+```
+
+```{r}
+BA4A_complete <- tibble(
+  # construct a tibble from our bootstrapped means
+  porosity.boot = BA4A_porosity.boot |> pull(resampled_data_mean),
+  cells.boot = BA4A_cells.boot |> pull(resampled_data_mean),
+  C_rate.boot = BA4A_C_rate.boot |> pull(resampled_data_mean)
+  ) |> 
+  mutate(
+  fmol_C_m3.boot = cell_specific_to_m3(
+    fmol_day = C_rate.boot, 
+    cell_density = cells.boot, 
+    phi = porosity.boot
+    )
+  ) |> 
+  mutate(core = "BA4A")
+```
+
+```{r}
+BA4A_complete |> 
+  ggplot(aes(x = fmol_C_m3.boot)) +
+  geom_histogram() +
+  geom_vline(aes(xintercept = mean(fmol_C_m3.boot)), color = "red") +
+  geom_vline(aes(xintercept = mean(fmol_C_m3.boot) + sd(fmol_C_m3.boot)), color = "red", linetype = "dashed") +
+  geom_vline(aes(xintercept = mean(fmol_C_m3.boot) - sd(fmol_C_m3.boot)), color = "red", linetype = "dashed") +
+  theme_bw()
+```
+
+## BA3A
+
+```{r}
+BA3A_porosity <- BA_density_porosity_full |> 
+  filter(core == "BA3A") |> 
+  select(porosity)
+  
+BA3A_cells <- BA_cell_counts |> 
+  filter(core == "BA3A") |> 
+  select(cells_per_g)
+
+BA3A_C_rate <- assim_data |> 
+  filter(amendment == "bicarbonate") |> 
+  filter(well == "BA3A") |> 
+  select(rC.fmol.d) |> 
+  rename(fmol_cell_day = rC.fmol.d)
+
+# Boostrap porosity for BA1B
+BA3A_porosity.boot <- BA3A_porosity |> 
+  bootstraps(times = 10000) |> 
+  mutate(resampled_data = map(splits, ~.x$data$porosity[.x$in_id]),
+    resampled_data_mean = map_dbl(resampled_data, mean),
+    resampled_data_sd = map_dbl(resampled_data, sd),
+    core = "BA3A"
+  )
+
+
+BA3A_cells.boot <- BA3A_cells |> 
+  bootstraps(times = 10000) |> 
+  mutate(
+    resampled_data = map(splits, ~.x$data$cells_per_g[.x$in_id]),
+    resampled_data_mean = map_dbl(resampled_data, mean),
+    resampled_data_sd = map_dbl(resampled_data, sd),
+    core = "BA3A"
+  )
+
+BA3A_C_rate.boot <- BA3A_C_rate |> 
+  bootstraps(times = 10000) |> 
+  mutate(
+    resampled_data = map(splits, ~.x$data$fmol_cell_day[.x$in_id]),
+    resampled_data_mean = map_dbl(resampled_data, mean, na.rm = TRUE),
+    resampled_data_sd = map_dbl(resampled_data, sd, na.rm = TRUE),
+    core = "BA3A"
+  )
+
+```
+
+```{r}
+BA3A_complete <- tibble(
+  # construct a tibble from our bootstrapped means
+  porosity.boot = BA3A_porosity.boot |> pull(resampled_data_mean),
+  cells.boot = BA3A_cells.boot |> pull(resampled_data_mean),
+  C_rate.boot = BA3A_C_rate.boot |> pull(resampled_data_mean)
+  ) |> 
+  mutate(
+  fmol_C_m3.boot = cell_specific_to_m3(
+    fmol_day = C_rate.boot, 
+    cell_density = cells.boot, 
+    phi = porosity.boot
+    )
+  ) |> 
+  mutate(core = "BA3A")
+```
+
+```{r}
+BA3A_complete |> 
+  ggplot(aes(x = fmol_C_m3.boot)) +
+  geom_histogram() +
+  geom_vline(aes(xintercept = mean(fmol_C_m3.boot)), color = "red") +
+  geom_vline(aes(xintercept = mean(fmol_C_m3.boot) + sd(fmol_C_m3.boot)), color = "red", linetype = "dashed") +
+  geom_vline(aes(xintercept = mean(fmol_C_m3.boot) - sd(fmol_C_m3.boot)), color = "red", linetype = "dashed") +
+  theme_bw()
+```
+
+# Join our individual datasets back together
+
+```{r}
+complete_boot <- bind_rows(BA1B_complete, BA4A_complete, BA3A_complete)
+```
+
+## Inspect the outputs of our bootstrapped model
+
+These bootstrapped datasets appear to appropriately represent the parameters of the original dataset.
+
+```{r}
+p_porosity_boot <- complete_boot |> 
+   mutate(core = factor(core, levels = c("BA1B", "BA4A", "BA3A"))) |> 
+  ggplot(
+    aes(
+      x = porosity.boot, y = core, fill = core
+    )
+  ) +
+  ggdist::stat_halfeye(point_interval = "mean_qi") +
+  scale_fill_manual(values = well_palette) +
+  labs(
+    y = "",
+    x = "Porosity (%)",
+    title = "Porosity"
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "None",
+    aspect.ratio = 1,
+    axis.text = element_text(color = "black", face = "bold")
+  )
+p_porosity_boot
+
+p_cell_boot <- complete_boot |> 
+   mutate(core = factor(core, levels = c("BA1B", "BA4A", "BA3A"))) |> 
+  ggplot(
+    aes(
+      x = cells.boot, y = core, fill = core
+    )
+  ) +
+  ggdist::stat_halfeye(point_interval = "mean_qi") +
+  scale_x_log10() +
+  scale_fill_manual(values = well_palette) +
+  labs(
+    y = "",
+    x = "Cells per g",
+    title = "Cell Density"
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "None",
+    aspect.ratio = 1,
+    axis.text = element_text(color = "black", face = "bold")
+  )
+p_cell_boot
+```
+
+And here are the DIC assimilation rates calculated for each well (integrated across depth) from our boostrapped datasets.
+
+```{r}
+p_activity_boot <- complete_boot |> 
+  mutate(core = factor(core, levels = c("BA1B", "BA4A", "BA3A"))) |> 
+  ggplot(
+    aes(x = fmol_C_m3.boot, y = core, fill = core)
+  ) +
+  ggdist::stat_halfeye(point_interval = "mean_qi") +
+  scale_fill_manual(values = well_palette) +
+  scale_x_log10() +
+  theme_bw() +
+  labs(
+    x = latex2exp::TeX("fmol C per $m^3$ per day"),
+    y = "",
+    title = "DIC Assimilation"
+  ) +
+  theme(
+    legend.position = "None",
+    aspect.ratio = 1,
+    axis.text = element_text(color = "black", face = "bold")
+  )
+p_activity_boot
+```
+
+```{r}
+#| echo: false
+
+
+cowplot::plot_grid(p_porosity_boot, p_cell_boot, p_activity_boot, ncol = 3)
+```
+
+## Apply additional scalings
+
+Assumption alert! Assumption alert!
+
+Per Boudier & Coleman 1981:
+
+> In the Wadi Tayin study area the peridotite forms the basal section of the Samail ophiolite and occupies an area of approximately 20 by 20 km.
+
+Let's assume the habitable region of the ophiolite extends to a depth of 500m (0.5km). This gives us a total habitable volume of:
+
+```{r}
+vol_m3 = 20000 * 20000 * 500
+vol_km3 = 20 * 20 * 0.5
+paste(vol_m3, "cubic meters or", vol_km3, "cubic kilometers")
+```
+
+Taking our fmol C per $m^3$ per day, we can scale up our C assimilation rates to the landscape level.
+
+$$
+g = mol \times MW(\frac{g}{mol})
+$$
+
+```{r}
+scaled_boot <- complete_boot |> 
+  mutate(
+    fmol_C_km3_day.boot = fmol_C_m3.boot * 1e9, # 1 km3 = 1e9 m3
+    fmol_C_formation_day.boot = fmol_C_km3_day.boot * vol_km3, # multiply by the habitable volume
+    mol_C_formation_day.boot = fmol_C_formation_day.boot / 1e15, # 1 mol = 1e15 fmol
+    kmol_C_formation_day.boot = mol_C_formation_day.boot / 1e3, # 1 kmol (kilomole) = 1e3 mol
+    g_C_formation_day.boot = mol_C_formation_day.boot * 12.011, # 1mol C = 12.011 g C
+    g_CO2_formation_day.boot = mol_C_formation_day.boot * 44.01, # 1mol CO2 = 44.01 g C02
+    g_CO2_formation_yr.boot = g_CO2_formation_day.boot * 365, # 1 year = 365 days
+    tonnes_CO2_formation_yr.boot = g_CO2_formation_yr.boot / 1e6, # 1 tonne = 1e6 g
+  )
+```
+
+```{r}
+scaled_boot |> 
+  mutate(core = factor(core, levels = c("BA1B", "BA4A", "BA3A"))) |> 
+  ggplot(
+    aes(
+      x = fmol_C_km3_day.boot, y = core, fill = core
+    )
+  ) +
+  ggdist::stat_halfeye(point_interval = "mean_qi") +
+  scale_fill_manual(values = well_palette) +
+  scale_x_log10(labels = scales::trans_format("log10", scales::math_format(10^.x))) +
+  labs(
+    #x = latex2exp::TeX("Tonnes $CO_2$ $yr^{-1}$"),
+    y = ""
+  ) +
+  labs(
+    #title = "Wadi Tayin Carbon Assimilation"
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "none"
+  )
+```
+
+# Biomass in the subsurface
+
+What is the mass of microbial biomass in the subsurface?
+
+Inspect the distribution of individual cell biomass from nanoSIMS data:
+
+```{r}
+BA_mass <- assim_data |> select(well, depth, cell.C.fg) |> 
+  rename(core = well) |> 
+  mutate(core = factor(core, levels = c("BA1B", "BA4A", "BA3A")))
+  
+BA_mass |> ggplot(
+  aes(
+    x = cell.C.fg, y = core
+  )
+) +
+  ggdist::stat_halfeye() +
+  labs(x = "Single-cell biomass (fg C)",
+       y = "") +
+  coord_cartesian(xlim = c(0, 250)) +
+  theme_bw() +
+  theme(
+    axis.text = element_text(color = "black")
+  )
+```
