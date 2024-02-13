@@ -10,8 +10,7 @@ data/.DS_Store
 data/Nikon-Widefield/*
 Data/16S/*
 data/.DS_Store
-data/.DS_Store
-data/.DS_Store
+fig_output/*
 data/nanoSIMS_tables/.DS_Store
 10_16S_Analysis_files/libs/typedarray-0.1/typedarray.min.js
 10_16S_Analysis_files/libs/quarto-html/tippy.umd.min.js
@@ -54,5 +53,4 @@ data/nanoSIMS_tables/.DS_Store
 10_16S_Analysis_files/figure-html/unnamed-chunk-18-1.png
 10_16S_Analysis_files/figure-html/unnamed-chunk-17-1.png
 10_16S_Analysis_files/figure-html/unnamed-chunk-10-1.png
-data/.DS_Store
-data/.DS_Store
+
