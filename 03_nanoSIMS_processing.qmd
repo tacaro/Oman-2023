@@ -80,16 +80,13 @@ DIC <- readRDS(file = "data/Caro DIC Run1 March 6/om23_dic_run1.RDS")
 
 # VOA data (via EMSL NMR)
 voa_corrected_ctl <- readRDS("cache/VOA_corrected.RDS")
-```
 
-#### Define color palette and load theme
-
-```{r}
+# Color palettes and ggplot2 theme
 source("source/color_palettes.R")
 source("source/theme_om23.R")
 ```
 
-# Add metadata
+### Add metadata
 
 ```{r}
 roi_data <- roi_data |> 
@@ -111,7 +108,7 @@ roi_data <- roi_data |>
   mutate(at13C = Ratio_13Cx12C/ (1 + Ratio_13Cx12C))
 ```
 
-# Plot 1: Investigate raw 13F trends
+# Investigate raw 13F trends
 
 ```{r}
 neg_ctl_mean <- roi_data |> 
@@ -130,21 +127,32 @@ custom_order = c("BA1B negative control", "BA1B formate", "BA1B bicarbonate", "B
 p_ratio <- roi_data |> 
   mutate(
     condition = paste(well, amendment),
-    condition = fct_recode(condition, !!!setNames(custom_order, custom_order))
+    condition = fct_recode(condition, !!!setNames(custom_order, custom_order)),
+    depth_str = factor(case_when(
+      depth == 20 ~ "Shallow (20m)",
+      depth == 150 ~ "Intermediate (150m)",
+      depth == 250 ~ "Deep (250/270m)",
+      depth == 270 ~ "Deep (250/270m)"
+    ),
+    levels = c("Shallow (20m)","Intermediate (150m)","Deep (250/270m)")
+    ),
+    well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))
   ) |> 
   filter(amendment != "negative control") |> 
   ggplot(
   aes(
     x = at13C,
     y = amendment,
-    color = amendment,
-    shape = as.factor(depth)
+    color = amendment
   )
 ) +
   geom_point(
-    position = position_jitter(height = 0.25),
-    alpha = 0.5
+    position = position_nudge(y = -0.25),
+    alpha = 0.5,
+    shape = 124,
+    size = 3
     ) +
+  ggdist::stat_pointinterval(color = "black", point_interval = "median_qi") +
   geom_vline(xintercept = neg_ctl_mean, linewidth = 0.5, color = "red", alpha = 0.5) +
   annotate(geom = "rect", 
     xmin = neg_ctl_mean - (2*neg_ctl_sd),
@@ -155,18 +163,20 @@ p_ratio <- roi_data |>
     alpha = 0.25
   ) +
   scale_color_manual(values = amendment_palette) +
-  facet_wrap(vars(depth, well)) +
+  facet_grid(depth_str~well) +
   #ggforce::facet_zoom(xlim = c(0, 0.1)) +
-  theme_bw() +
+  theme_om23() +
   labs(
     x = latex2exp::TeX("$^{13}F$"),
-    y = "",
-    shape = "Depth (mbs)"
+    y = ""
   ) +
   theme(
-    strip.background = element_rect(fill = "#e3e3e3", color = NA)
-    )
+    legend.position = "None"
+  )
 p_ratio
+
+# Here's a zoomed in verison of the last plot
+p_ratio %+% coord_cartesian(xlim = c(0, 0.05)) %+% labs(caption = "Zoomed in")
 ```
 
 # Rate calculations
@@ -187,7 +197,7 @@ amendments |> knitr::kable()
 
 We must account for isotopic dilution of the tracer from carbon pools native to the sample.
 
-Before our work with EMSL, we used the following estimates of OA concentrations in the well, taking the mean values.
+Before our work with EMSL, we used the following estimates of OA concentrations from previous studies nearby wells, taking the mean values.
 
 |  Well  | Formate (µM) | Acetate (µM) |
 |:------:|:------------:|:------------:|
@@ -282,12 +292,13 @@ calculate_effective <- function(mx, mk, fx, fk) {
   return(effective_concentration)
 }
 
+# Test the function:
 calculate_effective(mx = 50, mk = 50, fx = 1, fk = 0.5) # 0.75
 calculate_effective(mx = 1, mk = 50, fx = 0.01, fk = 0.9999) # 0.9804
 calculate_effective(mx = 2000, mk = 6000, fx = 0.01, fk = 0.9999) # 0.7524
 ```
 
-So let's apply this to our samples. We then calculate single-cell growth rate as per Caro et al. 2023, Kopf et al. 2015.
+So let's apply this to our samples. We then calculate single-cell growth rate as per Caro et al. 2023, Kopf et al. 2015, etc.
 
 ## Calculate growth rates
 
@@ -306,7 +317,7 @@ F13C.activity_threshold <- neg_ctl_mean + (3 * neg_ctl_sd)
 
 
 # join the tibbles
- growth_data <- roi_data |> 
+growth_data <- roi_data |> 
   # rename sample_id column to coupon_id column
   rename(coupon_id = sample_id) |>
   # create new column that matches sample_id
@@ -317,6 +328,25 @@ F13C.activity_threshold <- neg_ctl_mean + (3 * neg_ctl_sd)
   left_join(amendments, by = c("well", "amendment")) |> 
   # add the VOA data
   left_join(voa_concs, by = c("sample_id", "amendment")) |> 
+  mutate(
+    dt = case_when(
+      # add the incubation times from OM23 sample matrix .xlsx
+         # START: 7 FEB 2023
+         # END: 19 MAR 2023
+         str_detect(sample_id, "BA1B") ~ 40,
+         str_detect(sample_id, "BA4A") ~ 40,
+         # END: 02 OCT 2023
+         str_detect(sample_id, "BA3A-20") ~ 238,
+         # END: 10 OCT 2023
+         str_detect(sample_id, "BA3A-150") & amendment == "acetate" ~ 246,
+         str_detect(sample_id, "BA3A-150") & amendment == "bicarbonate"~ 246,
+         str_detect(sample_id, "BA3A-270") & amendment == "acetate"~ 246,
+         # END: 18 OCT 2023
+         str_detect(sample_id, "BA3A-150") & amendment == "formate" ~ 254,
+         str_detect(sample_id, "BA3A-270") & amendment == "formate"~ 254,
+         str_detect(sample_id, "BA3A-270") & amendment == "bicarbonate"~ 254,
+    )
+  ) |> 
  mutate(
     F13C.label = calculate_effective(
       # define the concentration of natural abundance C source:
@@ -339,31 +369,18 @@ F13C.activity_threshold <- neg_ctl_mean + (3 * neg_ctl_sd)
    # calculate apparent growth rate
    mutate(
      mu.d = calculate_mu(
-       a = 1, # assume assimilation efficiency of the carbon source is 1, ignoring fractionation effects because they are unknown
-       F2 = at13C,
-       F1 = neg_ctl_mean,
-       FL = F13C.label,
-       t2 = case_when(
-         # add the incubation times from OM23 sample matrix .xlsx
-         # START: 7 FEB 2023
-         # END: 19 MAR 2023
-         str_detect(sample_id, "BA1B") ~ 40,
-         str_detect(sample_id, "BA4A") ~ 40,
-         # END: 02 OCT 2023
-         str_detect(sample_id, "BA3A-20") ~ 238,
-         # END: 10 OCT 2023
-         str_detect(sample_id, "BA3A-150-AC") ~ 246,
-         str_detect(sample_id, "BA3A-150-BIC") ~ 246,
-         str_detect(sample_id, "BA3A-270-AC") ~ 246,
-         # END: 18 OCT 2023
-         str_detect(sample_id, "BA3A-150-FORM") ~ 254,
-         str_detect(sample_id, "BA3A-270-FORM") ~ 254,
-         str_detect(sample_id, "BA3A-270-BIC") ~ 254,
-       ),
-       t1 = 0
+       # assume assimilation efficiency of the carbon source is 1, 
+       # ignoring fractionation effects because they are unknown and likely low
+       a = 1,
+       F2 = at13C, # measured cell F13C (fractional abundance, not at. %)
+       F1 = neg_ctl_mean, # assume F13C at start of incubation is that of the neg ctl
+       FL = F13C.label, # use the calculated effective label strength
+       t2 = dt, # use the dt column we defined earlier based on cell extraction date
+       t1 = 0 # t1 = 0 because t2 is change in time!
      )
    ) |> 
-   # if cell F13C did not exceed 2SD of the blank, set active = FALSE and set mu.d to zero
+   # if cell F13C did not exceed 2SD of the blank, 
+   # set active = FALSE and set mu.d to zero
    mutate(
      active = if_else(
        at13C >= F13C.activity_threshold,
@@ -421,7 +438,7 @@ p_13F <- growth_data |>
   #   size = 0.3
   # ) +
   geom_point(
-    position = position_nudge(y = - 0.2),
+    position = position_nudge(y = - 0.25),
     alpha = 0.25,
     shape = 124,
     size = 5
@@ -460,6 +477,11 @@ p_13F <- growth_data |>
 p_13F
 
 cowplot::save_plot(plot = p_13F, filename = "fig_output/p13F.pdf", base_height = 8, base_width = 12)
+
+p_13F_zoom <- p_13F %+% coord_cartesian(xlim = c(0, 0.1))
+p_13F_zoom
+
+cowplot::save_plot(plot = p_13F_zoom, filename = "fig_output/p13F_zoom.pdf", base_height = 8, base_width = 12)
 ```
 
 ### Plot Growth Rates
@@ -837,12 +859,12 @@ paste(
   " at. % 13C"
   )
 
-F13C.activity_threshold <- neg_ctl_mean + (2 * neg_ctl_sd)
+F13C.activity_threshold <- neg_ctl_mean + (3 * neg_ctl_sd)
 
 paste0(
   "Our negative controls exhibit a F13C of ", round(neg_ctl_mean, 6), 
-  "+/- ", round(2* neg_ctl_sd, 6), 
-  " (2*SD). Therefore, our F13C activity threshold is ", 
+  "+/- ", round(3* neg_ctl_sd, 6), 
+  " (3*SD). Therefore, our F13C activity threshold is ", 
   round(F13C.activity_threshold, 6), " or ",
   round(F13C.activity_threshold * 100, 4),
   " at. % 13C."
@@ -1059,9 +1081,9 @@ assim_data <- growth_data |>
     cell.C.fg = calculate_mcarbon(V = vol),
     # calculate mass of assimilated carbon
     assim.C.fg = calculate_assimilated_C(mass = cell.C.fg, K = K),
-    # calculate rate of assimilation per day (34 day incubation)
+    # calculate rate of assimilation per day
     # fg/day
-    rC.fg.d = calculate_assim_rate(mu = assim.C.fg, t = 34),
+    rC.fg.d = calculate_assim_rate(mu = assim.C.fg, t = dt),
     # convert to fmol/cell/day by dividing fg / 12.01 fg/fmol
     rC.fmol.d = rC.fg.d / 12.01
   )
@@ -1069,83 +1091,7 @@ assim_data <- growth_data |>
 
 ```
 
-### Plot 3: Single Cell Carbon Assimilation Rates
-
-```{r}
-#| eval: false
-assim_summary <- assim_data |> 
-  group_by(well, depth, amendment) |> 
-  summarize(
-    rC.fmol.d = mean(rC.fmol.d)
-  )
-
-
-p_carbon_assim <- assim_data |> 
-  filter(amendment != "negative control") |> # filter negative controls out
-  # add "quantified" where sample is quantified if 3sigma above the mean natabund ctl
-  mutate(quantified = if_else(
-    at13C > (neg_ctl_mean + (3*neg_ctl_sd)),
-    true = TRUE,
-    false = FALSE
-  )) |> 
-  filter(quantified) |> 
-  ggplot() +
-  aes(
-    x = rC.fmol.d,
-    y = amendment,
-    color = amendment
-  ) +
-  ggdist::stat_halfeye(color = "black", scale = 0.5) +
-  geom_point(
-    position = position_nudge(y = -0.2),
-    alpha = 0.5,
-    shape = 124,
-    size = 3
-    ) +
-  geom_text(
-    data = assim_summary |> filter(amendment != "negative control"),
-    aes(
-      x = rC.fmol.d + 0.1,
-      y = as.numeric(factor(amendment)) + 0.2,
-      label = round(rC.fmol.d, 4)
-      ),
-    color = "black"
-  ) +
-  scale_color_manual(values = amendment_palette) + 
-  # scale_x_log10(
-  #   breaks = trans_breaks("log10", function(x) 10^x),
-  #   labels = trans_format("log10", math_format(10^.x))
-  # ) +
-  # annotation_logticks(sides = "b") +
-  scale_x_continuous(
-    labels = scales::trans_format("log10", 
-    scales::math_format(10^.x))
-    ) +
-  coord_cartesian(xlim = c(0, .85)) +
-  facet_wrap(vars(well, depth)) +
-  theme_bw() +
-  labs(
-    x = latex2exp::TeX("fmol C $cell^{-1}$ $day^{-1}$"),
-    y = "",
-    color = "Depth (mbs)",
-    shape = "Depth (mbs)"
-  ) +
-  theme_om23() +
-  theme(
-    legend.position = "None"
-  )
-    
-p_carbon_assim
-
-cowplot::save_plot(
-  plot = p_carbon_assim,
-  filename = "fig_output/carbon_assim_old.pdf",
-  base_height = 7,
-  base_width = 9
-  )
-```
-
-#### Plot 3.1: Updated
+#### Plot 3: Plot Carbon Assimilation Rate
 
 ```{r}
 # define a plotting helper function
@@ -1329,6 +1275,7 @@ Now we output the results of the above plot in table form
 assim_data_fmol_summary <- assim_data |> 
   group_by(well, depth, amendment) |> 
   filter(amendment != "negative_control") |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
   summarize(
     mean_rC.fmol.d = mean(rC.fmol.d)
   ) |> 
@@ -1339,19 +1286,24 @@ assim_data_fmol_summary <- assim_data |>
   mutate(site = paste0(well, "-", depth, "m")) |> 
   ungroup()
 
-assim_data_fmol_summary |> 
+gt_assim_data_fmol_summary <- assim_data_fmol_summary |> 
   select(-c(well, depth)) |> 
   gt::gt(rowname_col = "site") |> 
-  gt::tab_header(title = "Carbon Assimilation Rates") |> 
+  gt::tab_header(title = "Mean Cell-Specific Carbon Assimilation Rates") |> 
   gt::tab_footnote(footnote = "All values reported in cell-specific fmol C per day.",
                    locations = gt::cells_column_labels(
                      columns = c(acetate, bicarbonate, formate))) |> 
-  gt::tab_row_group(label = "BA1B", rows = c("BA1B-20m", "BA1B-150m", "BA1B-250m")) |> 
-  gt::tab_row_group(label = "BA4A", rows = c("BA4A-20m", "BA4A-150m", "BA4A-270m")) |> 
   gt::tab_row_group(label = "BA3A", rows = c("BA3A-20m", "BA3A-150m", "BA3A-270m")) |> 
+  gt::tab_row_group(label = "BA4A", rows = c("BA4A-20m", "BA4A-150m", "BA4A-270m")) |> 
+  gt::tab_row_group(label = "BA1B", rows = c("BA1B-20m", "BA1B-150m", "BA1B-250m")) |> 
   gt::tab_spanner(columns = everything(), label = "Amendment") |> 
   gt::fmt_scientific(columns = c(acetate, bicarbonate, formate)) |> 
-  gt::data_color(columns = c(acetate, bicarbonate, formate), palette = "Blues") 
+  gt::data_color(columns = c(acetate, bicarbonate, formate), palette = "Blues")
+
+# Export as .xlsx and gt
+gt::gtsave(gt_assim_data_fmol_summary, filename = "data_output/mean_cscar.html")
+writexl::write_xlsx(assim_data_fmol_summary, path = "data_output/mean_cscar.xlsx")
+
 ```
 
 ### Table Summary of % Active Cells
@@ -1389,7 +1341,7 @@ fraction_active_summary <- assim_data |> mutate(
     facet_wrap(vars(depth, well)) +
     theme_bw()
   
-  fraction_active_summary |> 
+  gt_fraction_active_summary <- fraction_active_summary |> 
     select(well, depth, fraction_active, amendment) |> 
     mutate(depth = case_when(
       depth == 20 ~ "Shallow (20m)",
@@ -1411,7 +1363,11 @@ fraction_active_summary <- assim_data |> mutate(
     gt::data_color(columns = BA3A, palette = "Greens") |> 
     gt::fmt_percent(columns = c(BA1B, BA4A, BA3A)) |> 
     gt::cols_align(align = "center")
+gt_fraction_active_summary
 
+# save as .xlsx and gt
+writexl::write_xlsx(fraction_active_summary, "data_output/fraction_active.xlsx")
+gt::gtsave(gt_fraction_active_summary, filename = "data_output/fraction_active.html")
   
 ```
 
@@ -1426,7 +1382,17 @@ assim_data |>
     true = TRUE,
     false = FALSE
   )) |> 
-  filter(quantified) |> 
+  mutate(
+    depth_str = factor(case_when(
+      depth == 20 ~ "Shallow (20m)",
+      depth == 150 ~ "Intermediate (150m)",
+      depth == 250 ~ "Deep (250/270m)",
+      depth == 270 ~ "Deep (250/270m)"
+    ),
+    levels = c("Shallow (20m)","Intermediate (150m)","Deep (250/270m)")
+    ),
+    well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))
+  ) |> 
   ggplot() +
   aes(
     x = K,
@@ -1441,13 +1407,11 @@ assim_data |>
     size = 3
     ) +
   scale_color_manual(values = amendment_palette) + 
-  facet_wrap(vars(well, depth)) +
+  facet_grid(depth_str~well) +
   theme_bw() +
   labs(
     x = "K",
-    y = "",
-    color = "Depth (mbs)",
-    shape = "Depth (mbs)"
+    y = ""
   ) +
   theme_om23() +
   theme(
@@ -1472,7 +1436,17 @@ assim_data |>
     true = TRUE,
     false = FALSE
   )) |> 
-  filter(quantified) |> 
+  mutate(
+    depth_str = factor(case_when(
+      depth == 20 ~ "Shallow (20m)",
+      depth == 150 ~ "Intermediate (150m)",
+      depth == 250 ~ "Deep (250/270m)",
+      depth == 270 ~ "Deep (250/270m)"
+    ),
+    levels = c("Shallow (20m)","Intermediate (150m)","Deep (250/270m)")
+    ),
+    well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))
+  ) |> 
   ggplot() +
   aes(
     x = vol,
@@ -1486,24 +1460,13 @@ assim_data |>
     shape = 124,
     size = 3
     ) +
-  geom_text(
-    data = cell_vol_summary |> filter(amendment != "negative control"),
-    aes(
-      x = vol + 0.1,
-      y = as.numeric(factor(amendment)) + 0.2,
-      label = round(vol, 2)
-      ),
-    color = "black"
-  ) +
   scale_color_manual(values = amendment_palette) + 
   scale_x_continuous(limits = c(0, 1)) +
-  facet_wrap(vars(well, depth)) +
+  facet_grid(depth_str~well) +
   theme_bw() +
   labs(
     x = latex2exp::TeX("Cell volume ($\\mu m ^3$)"),
     y = "",
-    color = "Depth (mbs)",
-    shape = "Depth (mbs)"
   ) +
   theme_om23() +
   theme(
