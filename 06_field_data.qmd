@@ -10,6 +10,7 @@ editor_options:
 
 ```{r}
 library(tidyverse)
+library(gt)
 ```
 
 ```{r}
@@ -32,12 +33,14 @@ p_pH <- om23 |>
     y = depth,
     fill = well,
     color = well,
-    label = pH
+    label = pH, 
+    shape = well
   )
 ) +
-  geom_point(size = 3) +
-  geom_path(linewidth = 1.5) +
+  geom_path(linewidth = 1) +
+  geom_point(size = 3, color = "black", stroke = 1) +
   scale_x_continuous(expand = c(0,0), limits = c(7, 12)) +
+  scale_shape_manual(values = c(21, 22, 23)) +
   annotate(geom = "text", label = "BA1B", x = 8, y = 5, color = well_palette[1]) +
   annotate(geom = "text", label = "BA4A", x = 9.5, y = 5, color = well_palette[2]) +
   annotate(geom = "text", label = "BA3A", x = 11, y = 20, color = well_palette[3]) +
@@ -59,7 +62,9 @@ p_pH <- om23 |>
   ggprism::theme_prism() +
   theme(
     axis.text.x = element_text(angle = 45, hjust = 1),
-    legend.position = "none"
+    legend.position = "none",
+    panel.grid.major.y = element_line(color = "gray", linewidth = 0.1),
+    aspect.ratio = 1
   )
 p_pH
 ```
@@ -76,15 +81,17 @@ p_cond <- om23 |>
     x = `conductivity (µS/cm)`,
     fill = well,
     color = well,
+    shape = well
     #label = `conductivity (µS/cm)`
   )
 ) +
-  geom_point(size = 3) +
   geom_path(linewidth = 1.5) +
+  geom_point(size = 3, color = "black", stroke = 1) +
   annotate(geom = "text", label = "BA3A", x = 2500, y = 70, color = well_palette[3]) +
   annotate(geom = "text", label = "BA4A", x = 1000, y = 150, color = well_palette[2]) +
   annotate(geom = "text", label = "BA1B", x = 0, y = 150, color = well_palette[1]) +
   scale_x_continuous(limits = c(-150, 3500)) +
+  scale_shape_manual(values = c(21, 22, 23)) +
   scale_y_reverse(breaks = c(0, 20, 150, 250, 270)) +
   scale_fill_manual(values = well_palette) +
   scale_color_manual(values = well_palette) +
@@ -104,27 +111,57 @@ p_cond <- om23 |>
   ggprism::theme_prism() +
   theme(
     axis.text.x = element_text(angle = 0, hjust = .5),
-    legend.position = "none"
+    legend.position = "none",
+    panel.grid.major.y = element_line(color = "gray", linewidth = 0.1),
+    aspect.ratio = 1
   )
 p_cond
 ```
 
 ```{r}
-cowplot::plot_grid(p_pH, p_cond)
+p_ph_cond <- cowplot::plot_grid(p_pH, p_cond, labels = c("A", "B"))
 ```
+
+# Export Plot
 
 ```{r}
 cowplot::save_plot(
-  plot = p_pH,
-  filename = "fig_output/om23_pH.pdf",
+  plot = p_ph_cond,
+  filename = "fig_output/p_ph_cond.pdf",
   base_height = 4,
-  base_width = 4
+  base_width = 8
 )
+```
 
-cowplot::save_plot(
-  plot = p_cond,
-  filename = "fig_output/om23_conductivity.pdf",
-  base_height = 4,
-  base_width = 4
-)
+# Export .xlsx
+
+```{r}
+om23 |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A", "NSHQ14"))) |> 
+  arrange(well, depth) |> 
+  writexl::write_xlsx(path = "data_output/field_data_export.xlsx")
+```
+
+# Export GT
+
+```{r}
+om23 |> 
+  #filter(!well %in% c("NSHQ14", "BA1D"), depth %in% c(20, 150, 250, 270)) |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A", "NSHQ14"))) |> 
+  mutate(sample_type = case_when(
+    sample_type == "Bailer" ~ "Point-Source Bailer",
+    sample_type == "Open Borehole" ~ "Open-Borehole Submersible Pump"
+  )) |> 
+  arrange(well, depth) |> 
+  select(-`ORP (mV)`, -condition) |> 
+  rename(Conductivity = `conductivity (µS/cm)`, Temperature = temp.C, `Depth to water table` = `depth to water table (m)`, Depth = depth, `Sampling Device` = sample_type) |>
+  gt() |> 
+  cols_units(
+    Conductivity = "µS cm^-1",
+    Temperature = ":degree:C",
+    `Depth to water table` = "mbs",
+    Depth = "mbs"
+  ) |> 
+  cols_align(align = "center") |> 
+  gtsave(filename = "data_output/field_data_export.html")
 ```
