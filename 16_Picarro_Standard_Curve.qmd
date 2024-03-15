@@ -1,0 +1,49 @@
+---
+title: "Picarro Data Analysis"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+## Setup
+
+```{r}
+library(tidyverse)
+
+test_vols <- tibble(
+  at13C_final = c(1, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 99),
+  F13C_final = at13C_final / 100,
+  R13C_final = F13C_final / (1 - F13C_final),
+  d13C_vpdb_final = ((R13C_final / 0.01123720) - 1) * 1000,
+  injection_ppm = 100,
+  mixing_ppm = 50000,
+  F13C_13Ctank = .99,
+  F13C_12Ctank = 0.01,
+  CH4_vol_in_injection = 5,
+  vol_13C = ((5*F13C_final) - 0.05)/ 0.98,
+  vol_12C = CH4_vol_in_injection - vol_13C
+)
+
+
+test_vols |> writexl::write_xlsx("data_output/picarro_standard_curve.xlsx")
+```
+
+```{r}
+test <- tibble(
+  F13C = seq(0.001, 1, by = 0.001),
+  R13C = F13C / (1 - F13C),
+  d13C_permil_vpdb = ((R13C / 0.01123720) - 1) * 1000,
+)
+  
+test |> ggplot(
+    aes(
+      x = F13C,
+      y = d13C_permil_vpdb
+    )
+  ) +
+  geom_line() +
+  coord_cartesian(ylim = c(0, 1e6)) +
+  theme_bw()
+plotly::ggplotly()
+```
