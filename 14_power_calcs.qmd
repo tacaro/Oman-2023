@@ -5,6 +5,7 @@ editor: visual
 editor_options: 
   chunk_output_type: console
 include-in-header: \usepackage[makeroom]{cancel}
+bibliography: references.bib
 ---
 
 ## Setup
@@ -27,49 +28,62 @@ assim_data <- read_rds("cache/SIMS_assim_data.RDS") |>
 
 # Energy requirement calculations
 
-Hoehler et al. in their 2023 paper consider the specific carbon turnover rate $\mu^*$ in units of grams carbon biomass synthesized per gram standing carbon biomass per time.
+> From Tori: More a Carbon turnover rate than as a doubling time. "Lower limit on doubling time."
 
-Dividing $\mu^*$ by MSP gives a quantity with units of g C biosynthesis per Joule $(g \space C \space J^{-1})$ which they refer to as biosynthesis yield, or $Y^*$.
+Hoehler et al. in their 2023 paper [@hoehler2023] consider the specific carbon turnover rate $\mu^*$ in mass carbon biomass synthesized $(C_{biosynthesis})$ per unit time per mass of standing biomass carbon ($C_{biomass}$). Consider mass in grams and time in seconds:
 
 $$
-Y^* = \frac{\mu^*}{MSP} = \frac{g \: C_{biosynthesis} \times s^{-1} \times g \: C_{biomass}}
+\mu^* = g \: C_{biosynthesis} \times (s \times \: g \: C_{biomass})^{-1} 
+\quad \quad (Eq. 1)
+$$
+
+Dividing $\mu^*$ by MSP cancels the terms of time and standing biomass $(s^{-1} \times g \: C^{-1}_{biomass})$ giving a quantity representing biomass synthesized per unit energy $(g \: C_{biosynthesis} \: J^{-1})$ which they refer to as biosynthesis yield, or $Y^*$.
+
+$$
+Y^* = 
+\frac{\mu^*}{MSP} = 
+\frac{g \: C_{biosynthesis} \times s^{-1} \times g \: C_{biomass}^{-1}}
 {J \times s^{-1} \times g \: C_{biomass}^{-1} } =
-\frac{g \: C_{biosynthesis}}{J}
+\frac{g \: C_{biosynthesis}}{J} 
+\quad \quad (Eq. 2)
 $$
 
-which is often expressed using kilojoules instead of Joules:
+which can be expressed in kilojoules instead of Joules:
 
 $$
 Y^* = \frac{g \: C_{biosynthesis}}{J} \times \frac{1J}{1000 kJ} = g \: C_{biosynthesis} \: kJ^{-1}
+\quad \quad (Eq. 3)
 $$
 
 $Y^*$ relates carbon turnover to energy utilization.
 
-Hoehler et al. find that biosynthesis yield $(Y^*)$ or anaerobic organisms is related to mass-specific carbon turnover rate $(yr^{-1})$ by the relationship
+Hoehler et al. find that biosynthesis yield $(Y^*)$ for anaerobic organisms is related to mass-specific carbon turnover rate $(yr^{-1})$ by the relationship
 
 $$
-Y^* = \frac{0.03 \pm 0.017 \: g \space C}{kJ} \times \frac{1000kJ}{1J} = 
-\frac{30 \: g \: C \pm 17}{J}
-$$ where $\mu^*$ is the mass-specific carbon turnover rate in reciprocal years.
+Y^* = \frac{0.03 \pm 0.017 \: g \: C_{biosynthesis}}{kJ} \times \frac{10\times ^{-5} kJ}{1J} = 
+\frac{0.0000003 \pm 17 \: g \: C }{J}
+\quad \quad (Eq. 4)
+$$
 
-Using this relationship, we can approximate the mass-specific power of the organisms in each sampling environment by assuming that the biosynthesis yield value remains constant.
+Using this relationship, we can approximate the mass-specific power of the organisms in each sampling environment by using this relationship. By rearranging $Y^* = \mu^* / MSP$ we get:
 
 $$
 MSP = \frac{\mu^*}{Y^*}
+\quad \quad (Eq. 5)
 $$
 
-From our data, we know the biomass generation time of each individual cell in units of days $T_G \: (days)$ . We convert this to a biomass generation time in years as $T_G \: (years) = T_G \: (days) * \frac{1yr}{365 \: days}$
-
-From this we can take the reciprocal of the value to get our specific cell turnover rate in years (i.e., instead of saying how many years per cell turnover, we say how many cell turnovers per year:
+From our data, we have reliable estimates of the standing biomass $(fg \: C_{biomass})$ at the single cell level calculated from nanoSIMS images. We also have estimates for the biosynthesis/turnover rates $(fg \: C_{biomass})$ of carbon. Therefore, we can calculate $\mu^*$ as follows:
 
 $$
-\mu = \frac{1}{T_G \: (yr)} = (yr^{-1})
-$$
-
-We can convert this to specific carbon turnover rate $(\mu^*)$ by normalizing by the cell's biomass:
-
-$$
-\mu^* = \frac{\mu}{g \: C_{biomass}}
+\begin{aligned}
+\mu^* &= \frac{fg \: C_{biosynthesis}}{day \times fg \: C_{biomass}} \times \frac{1 \:day}{86400 \: s} \times
+= \frac{fg \: C_{biosynthesis}}{s \times fg \: C_{biomass}} 
+\times \frac{10^{15} fgC_{biomass}}{1gC_{biomass}}
+\times \frac{1gC_{biosynthesis}}{10^{15} fgC_{biosynthesis}} = \\ 
+&\downarrow \\
+\mu^* &= g \: C_{biosynthesis} \times (s \times g \: C_{biomass})^{-1}
+\quad \quad (Eq. 6)
+\end{aligned}
 $$
 
 And using the power law Hoehler et al. define for biosynthesis yield:
@@ -77,84 +91,247 @@ And using the power law Hoehler et al. define for biosynthesis yield:
 $$
 \begin{aligned}
 Y^*[g \: C_{biosynthesis} J^{-1}] &= 
-\frac{\mu ^*[g \: C_{biosynthesis} \times s^{-1} \times g \: C_{biomass} ]}
-{MSP[ J \times s^{-1} \times g \: C_{biomass}^{-1}]} =
-30 \pm 17 \: g \: C \: J^{-1} \\
-\downarrow \\
-30 \pm 17 \: g \: C \: J^{-1} &= 
+\frac{\mu ^*[g \: C_{biosynthesis} \times (s \times g \: C_{biomass})^{-1} ]}
+{MSP[ J \times s^{-1} \times g \: C_{biomass}^{-1}]} \\
+&\downarrow \\
+0.0000003 \pm 17 \: g \: C_{biosynthesis} \times J^{-1} &= 
 \frac{
-\mu ^*[g \: C_{biosynthesis} \times s^{-1} \times g \: C_{biomass} ]}
+\mu ^*[g \: C_{biosynthesis} \times (s \times g \: C_{biomass})^{-1} ]}
 {MSP[ J \times s^{-1} \times g \: C_{biomass}^{-1}]
 } \\
-\downarrow \\
+&\downarrow \\
 {MSP[ J \times s^{-1} \times g \: C_{biomass}^{-1}]} &= 
 \frac{
-\mu ^*[g \: C_{biosynthesis} \times s^{-1} \times g \: C_{biomass} ]}
-{30 \pm 17 \: g \: C \: J^{-1}
-}
+\mu ^*[g \: C_{biosynthesis} \times (s \times g \: C_{biomass})^{-1} ]}
+{0.0000003 \pm 17 \: g \: C_{biosynthesis} \times J^{-1}
+} 
+\quad \quad (Eq. 7)
 \end{aligned}
 $$
 
-### Calculations
+## Calculations
 
 ```{r}
+#| label: calculate mu star and MSP
+
+
 assim_data_summary <- assim_data |> 
-  filter(amendment != "negative control") |> 
-  select(-c(at13C, K, sample_id)) |> 
-  rename(fmolC_per_cell_day = rC.fmol.d, TG.d = gen.d) |> 
+  filter(amendment != "negative control") |> # remove negative control data
+  select(-c(at13C, K, sample_id)) |> # clean up columns
+  rename(fmolC_per_cell_day = rC.fmol.d, TG.d = gen.d) |> # rename to intuitive name
   mutate(
-    TG.yrs = TG.d / 365,
-    turnover_rate_yr = 1 / TG.yrs,
-    mu_star = turnover_rate_yr / cell.C.fg # biosynthesis rate per fg C in biomass
+    gC_biomass = cell.C.fg / 1e15, # grams of cell biomass from femtograms
+    fg_C_per_cell_day = fmolC_per_cell_day * 12.011, # fg assimilated from fmol
+    # Eq. 6:
+    gC_biosynthesis.day = fg_C_per_cell_day / 1e15, # gC per day from fg per day
+    gC_biosynthesis.sec = gC_biosynthesis.day / 86400, # gC per second from gC per day
+    mu_star.sec = gC_biosynthesis.sec / gC_biomass, # turnover rate in seconds-1
+    mu_star.day = mu_star.sec * 86400, # convert from seconds-1 to days-1
+    mu_star.yr = mu_star.day * 365, # convert from days-1 to -1
+    # Eq. 7:
+    MSP.J_s_g = mu_star.sec / 0.0000003
   ) |> 
-  filter(mu_star > 0) |> 
+  # Factor our metadata for better plotting:
   mutate(
     well = factor(well, levels = c("BA1B", "BA4A", "BA3A")),
     depth_str = factor(case_when(
       depth == 20 ~ "Shallow (20m)",
       depth == 150 ~ "Intermediate (150m)",
       depth == 250 ~ "Deep (250/270m)",
-      depth == 270 ~ "Deep (250/270m)"
+      depth == 270 ~ "Deep (250/270m)"),
+      levels = c("Deep (250/270m)", "Intermediate (150m)", "Shallow (20m)")
     ),
-    levels = c("Shallow (20m)","Intermediate (150m)","Deep (250/270m)")
-    )
+    amendment = factor(amendment, levels = c("bicarbonate", "acetate", "formate"))
   )
+```
+
+```{r}
+#| label: plot mu star (carbon turnover rate)
+#| code-fold: true
 
 assim_data_summary |> 
+  filter(mu_star.yr > 0) |> 
   ggplot(
     aes(
-      x = mu_star,
-      y = amendment,
+      x = mu_star.yr,
+      y = depth_str,
       color = amendment
     )
   ) +
-  ggdist::stat_pointinterval(point_interval = "mean_qi") +
-  scale_x_log10() +
+  # geom_point(
+  #   position = position_jitterdodge(jitter.height = 0.2),
+  #   alpha = 0.5
+  #   ) +
+  ggdist::stat_pointinterval(point_interval = "mean_qi", color = "black") +
+  scale_x_log10(
+    breaks = c(1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1),
+    labels = scales::trans_format("log10", scales::math_format(10^.x)),
+    ) +
+  coord_cartesian(xlim = c(1e-4, 1e1)) +
+  annotation_logticks(sides = "b") +
   scale_color_manual(values = well_palette) +
-  facet_grid(depth_str~well) +
+  facet_grid(amendment~well) +
   labs(
-    x = latex2exp::TeX("Mass specific carbon turnover rate $(yr^{-1})$"),
+    x = latex2exp::TeX("Mass-specific carbon turnover rate $[yr^{-1}]$"),
     y = ""
   ) +
-  theme_om23() +
+  theme_om23() + 
   theme(
-    aspect.ratio = 1,
     panel.spacing = unit(0.15, "cm"),
     legend.position = "None"
   )
-
 ```
 
-### Definitions
+```{r}
+#| label: plot MSP
+#| code-fold: true
 
-Power in Watts: $W = J \times s^{-1}$
+assim_data_summary |> 
+  filter(mu_star.yr > 0) |> 
+  ggplot(
+    aes(
+      x = MSP.J_s_g,
+      y = depth_str,
+      color = amendment
+    )
+  ) +
+  ggdist::stat_pointinterval(point_interval = "mean_qi", color = "black") +
+  annotation_logticks(sides = "b") +
+  scale_x_log10(breaks = c(1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0),
+                labels = scales::trans_format("log10", scales::math_format(10^.x))) +
+  scale_color_manual(values = well_palette) +
+  facet_grid(amendment~well) +
+  labs(
+    x = latex2exp::TeX("MSP $[J \\cdot s^{-1} \\cdot gC_{biomass}^{-1}]$"),
+    y = ""
+  ) +
+  theme_om23() + 
+  theme(
+    panel.spacing = unit(0.15, "cm"),
+    legend.position = "None"
+  )
+```
 
-> Energy per unit time
+Inspecting our data, it is clear that estimates of mass-specific carbon turnover diverge from estimates of biomass generation time. The distinction between these two metrics is that biomass carbon turnover assumes a steady state pool of Carbon. In other words, microbial biomass is not increasing at the aggregate level. When we estimate microbial *growth rate*, we are assuming that cellular division takes place and that microbial biomass is increasing. The growth rate and generation time calculations introduce a natural log term to account for clonal growth. We can see how these values diverge by plotting the "generation rate" (number of cellular generations per year) versus the mass-specific carbon turnover rate (number of cell carbon turnovers per year) where generation rate is defined as the inverse of generation time. Generation time is calculated via the specific growth rate $(\mu_{growth})$ that assumes clonal cell growth:
 
-Mass-specific power (MSP) in Watts per grams carbon: $MSP = W \times (g C)^{-1} = J \times s^{-1} \times (gC)^{-1}$
+$$
+T_G = ln(2)/\mu_{growth}
+\\ G_R = 1 / T_G
+$$
 
-> The relationship between biomass and energy utilization rate
+```{r}
+#| code-fold: true
+#| label: plot mu star vs generation rate
+assim_data_summary |> 
+  filter(mu_star.yr > 0) |> 
+  mutate(TG.yr = TG.d / 365) |> 
+  ggplot(
+    aes(
+      x = mu_star.yr,  # 
+      y = 1/TG.yr,
+      color = well
+    )
+  ) +
+  geom_abline(color = "black") +
+  geom_line() +
+  scale_color_manual(values = amendment_palette) +
+  coord_cartesian(xlim = c(0, 15), ylim = c(0, 15)) +
+  labs(
+    x = latex2exp::TeX("Mass-specific carbon turnover rate $[yr^{-1}]$"),
+    y = latex2exp::TeX("Generation rate $[yr^{-1}]$")
+  ) +
+  theme_bw() +
+  theme(aspect.ratio = 1)
+```
 
-Biosynthesis yield: $Y^* = gC \times kJ^{-1}$
+## From energy requirements to metabolic flux
 
-> Carbon turnover per unit of energy
+We can use the energy requirements calculated here, and the mass of carbon in a cell, to estimate H2 oxidation rates. From our nanoSIMS data, we have estimates of the cell-specific biomass and can therefore convert into cell-specific power (CSP).
+
+$$
+CSP[J \times s^{-1} \times cell^{-1}] = MSP [J \times s^{-1} \times gC_{biomass}^{-1}] \times \frac{gC_{biomass}}{cell} \quad \quad (Eq. 8)
+$$
+
+We can calculate an energy requirement in Joules per cubic cm of rock (volume-specific power, VSP) by multiplying the cell density by the CSP:
+
+$$
+VSP [J \times s^{-1} \times (cm^3)^{-1}] = CSP[J \times s^{-1} \times cell^{-1}] \times \frac{cell}{cm^3_{rock}} \quad \quad (Eq. 9)
+$$
+
+We use the average value of $10^5$ cells per $cm^3$ of rock and convert VSP to units of Joules per cubic km per year as follows:
+
+$$
+VSP[J \times yr^{-1} \times km^3] = VSP[J \times s^{-1} \times (cm^3)^{-1}] \times \frac{3.154\times 10^7 \: s}{yr} \times \frac{10^{15}cm^3}{km^3} 
+\quad \quad (Eq. 10)
+$$
+
+We can then apply an estimate of $2.393 \times 10^{10}$ Joules produced per tonne $H_2$ consumed in methanogenesis, calculated from the maximum ∆G of $H_2 + 4CO_2 \rightarrow CH_4 + 2H_2O$ under far from equilibrium conditions [@leong2020], we can calculate a volume-specific $H_2$ oxidation rate:
+
+$$
+H_2[tonnes \times (km^3 \times yr)^{-1}] = VSP[J \times (km^3 \times yr)^{-1}] \times \frac{1 \: tonne \:H_2}{2.393 \times 10^{10} J} \quad \quad (Eq. 11)
+$$
+
+For sulfate reduction, we can use the free energy minimum calculated by [@hoehler2001]: -19.1 kJ mol sulfate in the reaction $SO_4^{2-} + 4H_2 \rightarrow S^{2-} + 4H_2O$, or $-19.4 \: kJ/4mol \: H_2 = -4.85 \: kJ / mol \: H_2 = -4850 \: J / mol \: H_2$.
+
+$$
+H_2[tonnes \times (km^3 \times yr)^{-1}] = VSP[J \times (km^3 \times yr)^{-1}] \times \frac{1 mol \: H_2}{4850 \: J}
+\times \frac{2.01568 \: g \: H_2}{1 mol \: H_2} \times \frac{1 \: tonne}{10^6 \: g}
+$$
+
+Following a similar approach for methanogenesis, [@hoehler2001] predict that methanogeneic archaea are supported by energy yields as samall as -10.6 kJ/mol CH4 (-1060 J / mol H2)
+
+```{r}
+#| label: calculate H2 oxidation rate
+assim_metabolic <- assim_data_summary |> 
+  mutate(
+    cell.C.g = cell.C.fg / 1e15, # convert cell biomass in fg to g
+    CSP.J_s_cell = MSP.J_s_g * cell.C.g, # calculate CSP (Eq. 8)
+    VSP.J_s_cm3 = CSP.J_s_cell * 1e5, # calculate VSP (Eq. 9)
+    VSP.J_yr_km3 = VSP.J_s_cm3 * 3.154e7 * 1e15, # VSP unit scaling (Eq. 10)
+    MA_H2ox.tonnes_yr_km3 = VSP.J_yr_km3 / 2.393e10, # H2oxidation from VSP (Eq. 11)
+    SRB_H2ox.tonnes_yr_km3 = VSP.J_yr_km3 * (1/4850) * 2.01568 * (1/1e6)
+  )
+```
+
+Plot it:
+
+```{r}
+#| label: plot H2 oxidation rate
+#| code-fold: true
+
+assim_metabolic |> 
+  filter(mu_star.yr > 0) |> 
+  filter(amendment == "bicarbonate") |> 
+  ggplot(
+    aes(
+      x = MA_H2ox.tonnes_yr_km3,
+      y = depth_str,
+      color = amendment
+    )
+  ) +
+  geom_vline(xintercept = 3.95, color = "red", linewidth = 0.1) +
+  ggdist::stat_pointinterval(point_interval = "mean_qi", color = "black") +
+  ggdist::stat_pointinterval(aes(x = SRB_H2ox.tonnes_yr_km3),
+                             point_interval = "mean_qi", color = "#e39714",
+                             position = position_nudge(y = -0.2),
+                             shape = 15) +
+  annotation_logticks(sides = "b") +
+  scale_x_log10(
+                labels = scales::trans_format("log10", scales::math_format(10^.x))) +
+  scale_color_manual(values = well_palette) +
+  facet_grid(vars(well)) +
+  labs(
+    x = latex2exp::TeX("$H_{2} \\; [tonnes \\cdot (km^3 \\cdot yr)^{-1}]$"),
+    y = "",
+    caption = "Red line indicates estimate of Templeton et al. (in review): 3.95"
+  ) +
+  theme_om23() + 
+  theme(
+    panel.spacing = unit(0.15, "cm"),
+    legend.position = "None"
+  )
+```
+
+The value estimated by Templeton et al. (2024 - in review) of 3.95 tonnes $H_2/km^3/yr$, indicated by the vertical red line, appears to be an under-estimate of hydrogen oxidation via methanogenesis. The cause of this is that Templeton et al. assume a cellular turnover rate of 1 $yr^{-1}$, a slower turnover rate than what is actually observed in many parts of the system.
+
+Our estimates display substantial variability in volume-specific hydrogen oxidation. The sources of this variability arises from the data itself: microbial carbon turnover rates in the system are highly heterogeneous across space and depth.
