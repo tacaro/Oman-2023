@@ -23,16 +23,22 @@ library(tidyverse)
 ### Load data
 
 ```{r}
-ic <- readxl::read_excel("data/IC-ICP/IC-ICP-data-cleaned.xlsx", sheet = 1,
-                         col_types = c("guess", "numeric", "numeric", "numeric", 
-                                       "numeric","numeric","numeric","numeric"))
+ic <- readxl::read_excel(
+  "data/IC-ICP/IC-ICP-data-cleaned.xlsx", sheet = 1,
+  col_types = c("guess", "numeric", "numeric", "numeric",
+                "numeric","numeric","numeric","numeric"))
 
-ic.loq <- readxl::read_excel("data/IC-ICP/IC-ICP-data-cleaned.xlsx", sheet = 2,
-                             col_types = "numeric")
+ic.loq <- readxl::read_excel(
+  "data/IC-ICP/IC-ICP-data-cleaned.xlsx", sheet = 2,
+  col_types = "numeric")
 
-icp <- readxl::read_excel("data/IC-ICP/IC-ICP-data-cleaned.xlsx", sheet = 3)
+icp <- readxl::read_excel(
+  "data/IC-ICP/IC-ICP-data-cleaned.xlsx", 
+  sheet = 3)
 
-icp.dl <- readxl::read_excel("data/IC-ICP/IC-ICP-data-cleaned.xlsx", sheet = 4)
+icp.dl <- readxl::read_excel(
+  "data/IC-ICP/IC-ICP-data-cleaned.xlsx",
+  sheet = 4)
 
 
 # Load auxillary field data (see 06_field_data.qmd for more analysis)
@@ -40,11 +46,14 @@ icp.dl <- readxl::read_excel("data/IC-ICP/IC-ICP-data-cleaned.xlsx", sheet = 4)
 om23 <- readxl::read_excel("data/OM23_field_data.xlsx") |> 
   group_by(well) |> 
   mutate(condition = fct_reorder(.f = condition, .x = depth)) |> 
-  filter(!well %in% c("NSHQ14", "BA1D"), depth %in% c(20, 150, 250, 270)) |> 
-  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
+  filter(
+    !well %in% c("NSHQ14", "BA1D"), 
+    depth %in% c(20, 150, 250, 270)) |> 
+  mutate(
+    well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
   rename(sample_id = condition) |> 
   ungroup() |> 
-  select(-well, -depth, -date)
+  select(-c(`ORP (mV)`, temp.C))
 ```
 
 ### Load Color Palette and theme
@@ -132,18 +141,16 @@ ic.complete <- ic.long |>
       )
   ) |> 
   mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
-  left_join(om23, by = "sample_id")
+  left_join(om23, by = c("sample_id", "well", "depth"))
 
-# Remove intermediate tibbles
-rm(ic.long)
-rm(ic.loq.long)
 ```
 
 Add Detection Limit to ICP data
 
 ```{r}
 icp.long <- icp |> 
-  select(-c(`Ar 420.069 - A (IS)`, `Sc 357.253 - A (IS)`, `Sc 361.383 - R (IS)`)) |> 
+  select(-c(`Ar 420.069 - A (IS)`, `Sc 357.253 - A (IS)`, 
+            `Sc 361.383 - R (IS)`)) |> 
   pivot_longer(cols = -c(sample_id, well, depth),
                values_to = "Concentration (mg/L)", 
                names_to = "compound") |> 
@@ -170,11 +177,7 @@ icp.complete <- icp.long |>
       )
   ) |> 
   mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
-  left_join(om23, by = "sample_id")
-
-# Remove intermediate tibbles
-rm(icp.long)
-rm(icp.dl.long)
+  left_join(om23, by = c("sample_id", "well", "depth"))
 ```
 
 ## Plot
@@ -398,6 +401,7 @@ p_ca_pH <- icp.complete |>
   scale_shape_manual(values = c(0, 2, 1, 16)) +
   #coord_cartesian(xlim = c(-5, -3.5)) +
   scale_x_continuous() +
+  coord_cartesian(xlim = c(-4, -2), ylim = c(7.5, 12)) +
   theme_om23() +
   labs(
     shape = "Depth (mbs)",
@@ -408,12 +412,21 @@ p_ca_pH <- icp.complete |>
   theme(
     axis.ticks = element_blank(),
     panel.grid.major = element_blank(),
-    legend.position = "left"
+    legend.position = "left",
+    aspect.ratio = 1,
+    
   )
 p_ca_pH
 
 cowplot::save_plot(
   filename = "fig_output/ca_vs_pH.pdf",
+  plot = p_ca_pH,
+  base_height = 4,
+  base_width = 5
+)
+
+cowplot::save_plot(
+  filename = "fig_output/ca_vs_pH.png",
   plot = p_ca_pH,
   base_height = 4,
   base_width = 5
@@ -588,4 +601,71 @@ cowplot::save_plot(
   base_height = 20,
   base_width = 24
 )
+```
+
+# Export
+
+Field data
+
+```{r}
+om23 |> 
+  arrange(well, depth) |> 
+  rename(`sampling depth` = depth) |> 
+  writexl::write_xlsx(
+  path = "data_output/field_data.xlsx"
+)
+
+om23 |> 
+  arrange(well, depth) |> 
+  rename(`sampling depth` = depth) |> 
+  gt::gt(rowname_col = c("well")) |> 
+  gt::data_color(columns = "pH", palette = "Greens") |> 
+  gt::data_color(columns = "conductivity (µS/cm)", palette = "Blues") |> 
+  gt::data_color(columns = "depth to water table (m)", palette = "Oranges")
+```
+
+Anions
+
+```{r}
+ic |> 
+  filter(well != "BA1D") |> 
+  filter(!str_detect(sample_id, "OM20")) |> 
+  select(well, depth, sample_id, everything()) |> 
+  arrange(well, depth) |> 
+  writexl::write_xlsx(path = "data_output/anion_data.xlsx")
+
+ic |> 
+  filter(well != "BA1D") |> 
+  filter(!str_detect(sample_id, "OM20")) |> 
+  select(well, depth, sample_id, everything()) |> 
+  arrange(well, depth) |> 
+  rename(`sampling depth` = depth) |> 
+  gt::gt(rowname_col = c("well")) |> 
+  gt::data_color(columns = "Chloride (mg-Cl/L)", palette = "Blues") |> 
+  gt::data_color(columns = "Sulfate (mg-SO4/L)", palette = "Oranges") |> 
+  gt::data_color(columns = "Nitrate (mg-NO3/L)", palette = "Reds")
+```
+
+Cations
+
+```{r}
+icp |> 
+  filter(!str_detect(sample_id, "BA1D"), !depth %in% c(200, 275)) |> 
+  select(well, depth, sample_id, 
+         `Ca 317.933 - A\r\n(mg/L)`, `Fe 238.204 - A\r\n(mg/L)`,
+         `Mg 285.213 - R\r\n(mg/L)`, `S 180.669 - A\r\n(mg/L)`,
+         `Si 251.611 - A\r\n(mg/L)`, `P 177.434 - A\r\n(mg/L)`
+         ) |> 
+  arrange(well, depth) |> 
+  gt::gt(rowname_col = "well") |> 
+  gt::data_color(columns = !c("depth", "sample_id"), palette = "Blues", direction = "column") |> 
+  gt::fmt_number(decimals = 3)
+
+icp |> 
+  filter(!str_detect(sample_id, "BA1D")) |> 
+  select(well, depth, sample_id, everything()) |> 
+  arrange(well, depth) |> 
+  writexl::write_xlsx(
+    path = "data_output/cation_data.xlsx"
+  )
 ```
