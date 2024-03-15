@@ -1,0 +1,565 @@
+---
+title: "GC Data Analysis"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+This script is for analyzing GC data which was parsed from the raw SRI data formats using the `00_gc_data_extraction_script.py` .
+
+First we generate a standard curve, then we apply the standard curve to the peak areas in our samples.
+
+## Setup
+
+Libraries:
+
+```{r}
+#| include: false
+#| echo: false
+#| warning: false
+#| message: false
+
+library(tidyverse)
+library(lubridate)
+source("source/theme_om23.R")
+source("source/color_palettes.R")
+```
+
+A function for extracting the date from the GC file name
+
+```{r}
+extract_date <- function(input_string) {
+  # Define the regular expression pattern to match the date format
+  date_pattern <- "\\d{2}[A-Z]{3}\\d{2}"
+
+  # Use str_extract to find the first occurrence of the pattern in the input string
+  extracted_date <- str_extract(input_string, date_pattern)
+
+  return(extracted_date)
+}
+
+# Test the function
+input <- "data/gc_data/13MAR23FID_TC_16.RES"
+result <- extract_date(input)
+```
+
+```{r}
+gc0314 <- read.csv("data/gc_data/tabulated/GCData0314.csv")
+gc0601 <- read.csv("data/gc_data/tabulated/GCData0601.csv")
+gc0811 <- read.csv("data/gc_data/tabulated/GCData0811.csv")
+gc0228 <- read.csv("data/gc_data/tabulated/GCData0228.csv")
+gc0929 <- read.csv("data/gc_data/tabulated/GCData0929.csv")
+
+gc_data <- bind_rows(gc0314, gc0601, gc0811, gc0228, gc0929) |> 
+  select(-c(X, correction_factor, peak_height, retention_time, column, carrier))
+
+gc_standards <- gc_data |> 
+  filter(str_detect(sample_type, "mix")) |> 
+  mutate(volume.ml = as.numeric(str_extract(sample_type, "\\d+(\\.\\d+)?(?=ml)")))
+
+gc_samples <- gc_data |> 
+  filter(!str_detect(sample_type, "mix"),
+         !str_detect(sample_type, "blank"),
+         !str_detect(sample_type, "failed"))
+
+excluded <- readxl::read_excel("data/gc_data/excluded_gc_data.xlsx")
+excluded_list <- excluded$excluded
+```
+
+# Define standard curve
+
+Create a standard calibration for 1% gas mix. Here, for any volume of gas mix injected, we can back out the number of moles that the GC "saw" during the injection using the ideal gas law:
+
+$$
+n = \frac{PV}{RT}
+$$
+
+```{r}
+calibration <- tibble(
+  condition = c("0.25 ml 1% gas mix", "0.5 ml 1% gas mix", "0.75 ml 1% gas mix", "1.0 ml 1% gas mix")
+  ) |> 
+  mutate(
+    # the gas mix is at 12.2 psi (0.8 atm - Boulder Colorado ambient pressure):
+    gas_mix_pressure.psia = 12.2,
+    # the partial pressure of each gas in the 1% mix is 1%:
+    individual_gas_partial_pressure.psia = gas_mix_pressure.psia * .01,
+    # convert from psi to atm:
+    individual_gas_partial_pressure.atm = 
+      individual_gas_partial_pressure.psia / 14.69594861,
+    volume.ml = c(0.25, 0.5, 0.75, 1.0), # injection volumes for each condition
+    volume.L = volume.ml / 1000, # convert from mL to L
+    R.L.atm_mol.K = 0.082057338, # Ideal gas constant (R) in L atm / mol K
+    temp_K = 298.15, # approximate temperature in Kelvin
+    # apply the ideal gas law n = PV/RT
+    mol = (individual_gas_partial_pressure.atm * volume.L) / (R.L.atm_mol.K * temp_K),
+    # convert from mol to nmol
+    nmol = mol * 1e9
+  )
+
+
+calibration |> gt::gt()
+```
+
+```{r}
+gc_standards_clean <- gc_standards |> 
+  filter(gas == "CH4") |> # focus only on methane
+  left_join(
+    calibration |> select(mol, nmol, volume.ml), by = "volume.ml"
+  ) |> 
+  mutate(nmol = mol * 1e9, n = row_number()) |> 
+  # remove standards from when FID gain was on 'high'
+  filter(!str_detect(file_name, "11AUG23")) |> 
+  # remove outlier injection (not vented to room pressure)
+  filter(n != 29)
+```
+
+## Inspect the standards
+
+```{r}
+p_gc_standards_clean <- gc_standards_clean |> 
+  ggplot(aes(y = nmol, x = peak_area)) +
+  geom_point() +
+  geom_smooth(
+    method = "lm", formula = "y~x"
+  ) +
+  labs(x = "nmol", y = "peak area") +
+  theme_minimal()
+p_gc_standards_clean
+```
+
+## Generate standard curve
+
+Now we can generate an equation for calculating peak area to nmol of gas:
+
+```{r}
+# Subset data on which to calibrate
+# Uncomment this one if you want CO2 -- we don't!
+# CO2_calibration <- gc_standards_clean |> filter(gas == "CO2")
+CH4_calibration <- gc_standards_clean |> filter(gas == "CH4")
+
+# Fit a linear model to each dataset
+#CO2_fit <- lm(CO2_calibration$nmol~CO2_calibration$peak_area)
+CH4_fit <- lm(CH4_calibration$nmol~CH4_calibration$peak_area)
+
+# Pull the slopes, intercepts, and SE from each model
+CH4_slope <- CH4_fit |> pluck(1,2)
+CH4_int <- CH4_fit |> pluck(1,1)
+CH4_SE <- CH4_fit |> broom::tidy() |> 
+  filter(term == "CH4_calibration$peak_area") |> pull(std.error)
+
+# CO2_slope <- CO2_fit |> pluck(1, 2)
+# CO2_int <- CO2_fit |> pluck(1, 1)
+# CO2_SE <- CO2_fit |> broom::tidy() |> 
+#   filter(term == "CO2_calibration$peak_area") |> pull(std.error)
+
+# Print the fits:
+fit_str <- paste("CH4 Fit: y =", CH4_slope, "x +", CH4_int)
+print(fit_str)
+# print(paste("CO2 Fit: y =", CO2_slope, "x +", CO2_int))
+
+# A function to compute the estimated nmol given a peak area:
+peak_area_to_nmol <- function(gas, peak_area, limit = NA, force_zero = FALSE) {
+  #' @param gas character string: gas choice: either "CH4" or "CO2"
+  #' @param peak_area numeric: peak area values
+  #' @param limit character string: either "upper" or "lower" to pick error bound based on model SE
+  CH4_intercept = CH4_int
+  CO2_intercept = 0 # REMOVE if using CO2
+  CO2_slope = 0 # REMOVE if using CO2
+  CO2_SE = 0 # REMOVE if using CO2
+  
+  nmol = NA
+  if (force_zero == TRUE) {
+    CH4_intercept = 0
+    CO2_intercept = 0
+  }
+  
+  if (is.na(limit)) {
+    nmol = case_when(
+    gas == "CH4" ~ (peak_area * CH4_slope) + CH4_intercept,
+    gas == "CO2" ~ (peak_area * CO2_slope) + CO2_intercept
+  )
+  } else if (limit == "upper") {
+    nmol = case_when(
+      gas == "CH4" ~ (peak_area * (CH4_slope + 2*CH4_SE)) + CH4_intercept,
+      gas == "CO2" ~ (peak_area * (CO2_slope + 2*CO2_SE)) + CO2_intercept
+    )
+  } else if (limit == "lower") {
+    nmol = case_when(
+    gas == "CH4" ~ (peak_area * (CH4_slope - 2*CH4_SE)) + CH4_intercept,
+    gas == "CO2" ~ (peak_area * (CO2_slope - 2*CO2_SE)) + CO2_intercept
+    )
+  } else {
+    message("Incorrect function arguments, returning NA")
+  }
+  return(nmol)
+}
+
+# Test it:
+peak_area_to_nmol(gas = "CH4", peak_area = 25000)
+peak_area_to_nmol(gas = "CH4", peak_area = 25000, limit = "upper")
+peak_area_to_nmol(gas = "CH4", peak_area = 25000, limit = "lower")
+
+# peak_area_to_nmol(gas = "CO2", peak_area = 25000)
+# peak_area_to_nmol(gas = "CO2", peak_area = 25000, limit = "upper")
+# peak_area_to_nmol(gas = "CO2", peak_area = 25000, limit = "lower")
+
+# These return NA:
+peak_area_to_nmol(gas = "O2", peak_area = 25000)
+peak_area_to_nmol(gas = "O2", peak_area = 25000, limit = "lower")
+
+# Test it with a plot
+
+test_function_data <- tibble(
+  peak_area = seq(0, 2500, by = 1),
+  nmol = peak_area_to_nmol(gas = "CH4", peak_area = peak_area, force_zero = FALSE),
+  nmol.upper = peak_area_to_nmol(gas = "CH4", peak_area = peak_area, 
+                                 force_zero = FALSE, limit = "upper"),
+  nmol.lower = peak_area_to_nmol(gas = "CH4", peak_area = peak_area, 
+                                 force_zero = FALSE, limit = "lower"),
+)
+
+p_gc_standards_clean %+%
+  geom_line(data = test_function_data, color = "red", linewidth = 1) +
+  geom_line(data = test_function_data, aes(y = nmol.lower), color = "red") +
+  geom_line(data = test_function_data, aes(y = nmol.upper), color = "red") +
+  annotate(geom = "text", label = fit_str, x = 1000, y = 450, size = 3)
+
+```
+
+### Apply standard curve to dataset
+
+Now that we have our standard curve, we can apply this calibration to the experimental dataset:
+
+```{r}
+gc_samples_calc <- gc_samples |> 
+  filter(gas == "CH4") |> 
+  mutate(
+    # parse injection volume
+    volume.ml = as.numeric(str_extract(sample_type, "\\d+(\\.\\d+)?(?=ml)")),
+    # calculate number of nmol injected
+    nmol = peak_area_to_nmol(gas = gas, peak_area = peak_area, 
+                             force_zero = TRUE),
+    nmol.upper = peak_area_to_nmol(gas = gas, peak_area = peak_area, 
+                                   limit = "upper", force_zero = TRUE),
+    nmol.lower = peak_area_to_nmol(gas = gas, peak_area = peak_area, 
+                                   limit = "lower", force_zero = TRUE),
+    # normalize for injection volume
+    nmol_per_ml = nmol / volume.ml,
+    nmol_per_ml.upper = nmol.upper / volume.ml,
+    nmol_per_ml.lower = nmol.lower / volume.ml,
+    # normalize for volume of headspace: 50ml headspace
+    nmol_headspace = nmol_per_ml * 50,
+    nmol_headspace.upper = nmol_per_ml.upper * 50,
+    nmol_headspace.lower = nmol_per_ml.lower * 50
+    ) |> 
+  # parse sampling date from the file_name
+  mutate(
+    sampling_date = dmy(extract_date(file_name)),
+    start_date = dmy("07FEB23"),
+    dt = sampling_date - start_date
+  ) |> 
+  # parse our metadata
+  mutate(
+    well = case_when(
+      str_detect(sample_type, "BA3A") ~ "BA3A",
+      str_detect(sample_type, "BA4A") ~ "BA4A",
+      str_detect(sample_type, "BA1B") ~ "BA1B",
+      TRUE ~ NA
+    ),
+    depth = case_when(
+      str_detect(sample_type, "-20-") ~ 20,
+      str_detect(sample_type, "-150-") ~ 150,
+      str_detect(sample_type, "-250-") ~ 250,
+      str_detect(sample_type, "-270-") ~ 270,
+      TRUE ~ NA
+    ),
+    amendment = case_when(
+      str_detect(sample_type, "AC") ~ "acetate",
+      str_detect(sample_type, "Ac") ~ "acetate",
+      str_detect(sample_type, "Form") ~ "formate",
+      str_detect(sample_type, "FORM") ~ "formate",
+      str_detect(sample_type, "BIC") ~ "bicarbonate",
+      str_detect(sample_type, "Bic") ~ "bicarbonate",
+      TRUE ~ NA
+    )
+  )
+  
+gc_samples_calc |> 
+  select(sample_type, well, depth, amendment, dt, peak_area, nmol, 
+         nmol_headspace, nmol_headspace.lower, nmol_headspace.upper, ) |> 
+  arrange(well, depth, dt) |> 
+  gt::gt() |> 
+  gt::data_color(columns = nmol_headspace, palette = "Blues")
+```
+
+## Add t0 data
+
+```{r}
+t0 <- tibble(
+  well = c("BA3A", "BA4A", "BA1B")
+) |> 
+  crossing(
+    depth = c(20, 150, 270),
+    amendment = c("bicarbonate", "formate", "acetate"),
+    gas = c("CH4", "CO2")
+  ) |> 
+  mutate(
+    depth = case_when(
+      depth == 270 & well == "BA1B" ~ 250,
+      TRUE ~ depth
+    )
+  ) |> 
+  mutate(
+    nmol = 0,
+    nmol_per_ml = 0,
+    nmol_headspace = 0,
+    start_date = dmy("07FEB23"),
+    sampling_date = dmy("07FEB23"),
+    dt = sampling_date - start_date,
+    peak_area = 0
+    )
+
+gc_samples_calc_wt0 <- gc_samples_calc |> 
+  bind_rows(t0) |>
+  # factor our metadata
+  mutate(
+    depth_str = factor(
+      case_when(
+        depth == 20 ~ "Shallow (20m)",
+        depth == 150 ~ "Moderate (150m)",
+        depth == 250 ~ "Deep (250/270m)",
+        depth == 270 ~ "Deep (250/270m)"
+      ),
+    levels = c("Shallow (20m)", "Moderate (150m)", "Deep (250/270m)")
+    )
+    ) |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
+  filter(!file_name %in% excluded_list)
+  
+
+
+
+  
+```
+
+# Plot headspace nmol timeseries
+
+```{r}
+p_timeseries <- gc_samples_calc_wt0 |> 
+  ggplot(
+    aes(x = dt,
+        y = nmol_headspace,
+        color = amendment,
+        fill = amendment,
+        shape = amendment,
+        label = file_name
+        )
+  ) +
+  geom_line(linewidth = 0.5, color = "gray") +
+  geom_pointrange(
+    aes(ymin = nmol_headspace.lower, ymax = nmol_headspace.upper),
+    color = "black", stroke = 1
+    ) +
+  facet_grid(depth_str~well) +
+  scale_color_manual(values = amendment_palette) +
+  scale_fill_manual(values = amendment_palette) +
+  scale_shape_manual(values = c(21, 22, 23)) +
+  ggprism::annotation_ticks(sides = "trbl") +
+  theme_bw() +
+  labs(
+    x = "Incubation time (days)",
+    #y = latex2exp::TeX("nmol $CH_4$ $ml^{-1}$")
+  ) +
+  theme_om23() +
+  theme(
+    panel.grid = element_blank(),
+    aspect.ratio = 1
+  )
+p_timeseries
+```
+
+# Calculate molarity via Henry's law
+
+We want to calculate the Henry's coefficient of $CH_4$ at 35˚C (308.15K). The temperature dependence of $CH_4$ according to [Burkholder et al. 2019 (reviewed by R. Sander 2023)](https://henrys-law.org/henry/casrn/74-82-8)is $H^{cp}_{s}$ = `1600` and the Henry's law coefficient at reference temperature (298.15 K) is `1.4E-5` mol/m3Pa.
+
+$$
+\begin{aligned} H(308K) &= H^{\circ} exp \left[\frac{-\Delta_{sol}}{R} \left(\frac{1}{T} - \frac{1}{T^{\circ}} \right)       \right] \\H(308K) &= (1.4 \times 10^{-5}) exp \left[ -1600 \left( \frac{1}{308.15} - \frac{1}{298.15}\right)\right] \\H(308K) &= (1.4 \times 10^{-5}) \cdot e^{0.174149806766} \\H(308K) &= 0.0000166632740057 \: [mol/m^3Pa]\end{aligned} 
+$$
+
+Which is equivalent to:
+
+$$
+H(308K) = 0.0000166632740057 \: [M / Pa]
+$$
+
+Which we convert to atm using the conversion factor 101.325 Pa/atm:\
+$$
+H(308K) = 0.001688406239 \: [M / atm]
+$$
+
+Define a function that does this calculation, with Henry's coefficient for methane at 35˚C as the default.
+
+```{r}
+atm_to_M <- function(atm, H_atm_per_M = 0.001688406239) {
+  #' @param H_atm_per_M Henry's constant of gas-of-interest in M/atm
+  #' @param atm Partial pressure of gas-of-interest in atm
+  #' @return Aqueous concentration of gas-of-interest in M
+  return(H_atm_per_M * atm)
+}
+```
+
+We can use ideal gas law to calculate partial pressure of gas in the sample
+
+$$
+P = \frac{nRT}{V}
+$$
+
+```{r}
+nmol_to_atm <- function(nmol, vol_L, temp_C) {
+  mol = nmol * 1e-9
+  temp_K = temp_C + 273.15 # convert temperature C to K
+  R.L.atm_mol.K = 0.082057338 # Ideal gas constant (R) in L atm / mol K
+  P_atm = (mol * R.L.atm_mol.K * temp_K) / vol_L
+  return(P_atm)
+}
+```
+
+and once we calculate aqueous \[CH4\] we can find how many moles of CH4 are in the solution by multiplying by volume:
+
+`mol = M * vol (L)`
+
+`nmol_aqueous = mol * 1e9`
+
+Then the total nmol of CH4 produced is the sum of `nmol_headspace` and `nmol_aqueous`
+
+```{r}
+gc_henry <- gc_samples_calc_wt0 |> 
+  mutate(
+    CH4_atm = nmol_to_atm(nmol_headspace, vol_L = 0.05, temp_C = 35),
+    CH4_atm.upper = nmol_to_atm(nmol_headspace.upper, vol_L = 0.05, temp_C = 35),
+    CH4_atm.lower = nmol_to_atm(nmol_headspace.lower, vol_L = 0.05, temp_C = 35),
+    M_aq = atm_to_M(CH4_atm),
+    M_aq.upper = atm_to_M(CH4_atm.upper),
+    M_aq.lower = atm_to_M(CH4_atm.lower),
+    nmol_aqueous = M_aq * 0.05 * 1e9, # 0.050 L or 50 mL, 1e9 nmol per mol
+    nmol_aqueous.upper = M_aq.upper * 0.05 * 1e9,
+    nmol_aqueous.lower = M_aq.lower * 0.05 * 1e9,
+    nmol_total = nmol_aqueous + nmol_headspace,
+    nmol_total.upper = nmol_aqueous.upper + nmol_headspace.upper,
+    nmol_total.lower = nmol_aqueous.lower + nmol_headspace.lower
+  )
+```
+
+Examine the aqueous concentration of methane: it looks like we're producing concentrations of 10s to 100s of µM.
+
+```{r}
+p_aqueous <- gc_henry |> 
+  mutate(
+    uM_aq = M_aq * 1e6,
+    uM_aq.upper = M_aq.upper * 1e6,
+    uM_aq.lower = M_aq.lower * 1e6
+  ) |> 
+  ggplot(
+    aes(x = dt,
+        y = uM_aq,
+        color = amendment,
+        fill = amendment,
+        shape = amendment,
+        label = file_name
+        )
+  ) +
+  geom_line(linewidth = 0.5, color = "gray") +
+  geom_pointrange(
+    aes(ymin = uM_aq.lower, ymax = uM_aq.upper),
+    color = "black", stroke = 1
+    ) +
+  facet_grid(depth_str~well) +
+  scale_color_manual(values = amendment_palette) +
+  scale_fill_manual(values = amendment_palette) +
+  scale_shape_manual(values = c(21, 22, 23)) +
+  ggprism::annotation_ticks(sides = "trbl") +
+  theme_bw() +
+  labs(
+    x = "Incubation time (days)",
+    y = "Aqueous [CH4] (µM)"
+  ) +
+  theme_om23() +
+  theme(
+    panel.grid = element_blank(),
+    aspect.ratio = 1
+  )
+p_aqueous
+
+cowplot::save_plot(
+  filename = "fig_output/p_aqueous_CH4.pdf",
+  plot = p_aqueous,
+  base_height = 10,
+  base_width = 10
+)
+```
+
+```{r}
+p_total_CH4 <- gc_henry |> 
+  mutate(
+    umol_total = nmol_total / 1000,
+    umol_total.upper = nmol_total.upper / 1000,
+    umol_total.lower = nmol_total.lower / 1000
+  ) |> 
+  ggplot(
+    aes(x = dt,
+        y = umol_total,
+        color = amendment,
+        fill = amendment,
+        shape = amendment,
+        label = file_name
+        )
+  ) +
+  geom_line(linewidth = 0.5, color = "gray") +
+  geom_pointrange(
+    aes(ymin = umol_total.lower, ymax = umol_total.upper),
+    color = "black", stroke = 1
+    ) +
+  facet_grid(depth_str~well) +
+  scale_color_manual(values = amendment_palette) +
+  scale_fill_manual(values = amendment_palette) +
+  scale_shape_manual(values = c(21, 22, 23)) +
+  ggprism::annotation_ticks(sides = "trbl") +
+  theme_bw() +
+  labs(
+    x = "Incubation time (days)",
+    y = "Total CH4 produced (µmol)"
+  ) +
+  theme_om23() +
+  theme(
+    panel.grid = element_blank(),
+    aspect.ratio = 1
+  )
+p_total_CH4
+
+cowplot::save_plot(
+  filename = "fig_output/p_total_CH4.pdf",
+  plot = p_total_CH4,
+  base_height = 10,
+  base_width = 10
+)
+```
+
+# Calculate production rates
+
+```{r}
+production_rates <- gc_samples_calc_wt0 |> 
+  group_by(well, depth, amendment) |> 
+  filter(dt == max(dt))
+```
+
+# Export plot
+
+```{r}
+cowplot::save_plot(
+  plot = p_timeseries,
+  filename = "fig_output/p_GC_data.pdf",
+  base_height = 6,
+  base_width = 6
+)
+```
