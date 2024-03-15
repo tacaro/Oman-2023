@@ -12,6 +12,7 @@ Data/16S/*
 data/.DS_Store
 fig_output/*
 data/nanoSIMS_tables/.DS_Store
+10_16S_Analysis_files/*
 10_16S_Analysis_files/libs/typedarray-0.1/typedarray.min.js
 10_16S_Analysis_files/libs/quarto-html/tippy.umd.min.js
 10_16S_Analysis_files/libs/quarto-html/tippy.css
@@ -53,5 +54,5 @@ data/nanoSIMS_tables/.DS_Store
 10_16S_Analysis_files/figure-html/unnamed-chunk-18-1.png
 10_16S_Analysis_files/figure-html/unnamed-chunk-17-1.png
 10_16S_Analysis_files/figure-html/unnamed-chunk-10-1.png
-
+15_gini_coef_files/*
 CRRDS notes.qmd
