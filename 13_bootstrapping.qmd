@@ -6,7 +6,6 @@ format:
     toc-depth: 2
     code-fold: true
     code-line-numbers: true
-
 editor: visual
 editor_options: 
   chunk_output_type: console
@@ -569,4 +568,10 @@ BA_mass |> ggplot(
   theme(
     axis.text = element_text(color = "black")
   )
+```
+
+# Export
+
+```{r}
+complete_boot |> write_rds("cache/boostrapped_dataset.rds")
 ```
