@@ -1,0 +1,293 @@
+---
+title: "Intracommunity Heterogeneity"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+## What does this script do?
+
+This script takes in the single-cell C assimilation rates calculated in `03_nanoSIMS_processing.qmd` and calculates units of intracommunity heterogeneity, specifically, the Gini coefficient as applied in Calabrese et al. 2019 (Front Microbiol) and Arandia-Gorostidi et al. 2022 (ISME J).
+
+The Gini Coefficient is calculated as the discrepancy in the areas of two Lorenz curves. In a population with perfect parity, 10% of the population assimilates 10% of the carbon, 20% of the population 20% of the carbon, and so on. This represents the "line of equality."
+
+The Gini coefficient captures how far the Lorenz curve falls from the line of equality by comparing areas A and B:
+
+$$
+Gini = \frac{A}{A + B}
+$$
+
+Where A is the area under our observed Lorenz curve and B is the difference between this area and that under the line of equality.
+
+When rates of assimilation are perfectly equal, the Lorenz curve follows the line of equality, the area of A is zero, and therefore the Gini coefficient is zero. When one cell exhibits all the C assimilation, the Lorenz curve follows the X axis of the chart: the area B will be zero, and the Gini coefficient equals 1.
+
+**Perfect equality:** $Gini = 0$
+
+**Perfect inequality:** $Gini = 1$
+
+Sample Gini coefficients (as opposed to population Gini coefficients) must be multiplied by $n / (n - 1)$ in order to become unbiased estimators for the population Gini coefficients. This is known as Bessel's correction and corrects for bias in the estimation of population variance from samples. See Dixon et al. 1987.
+
+## Setup
+
+Load required libraries
+
+```{r}
+#| warning: false
+#| message: false
+library(tidyverse) # Easily Install and Load the 'Tidyverse', CRAN v2.0.0
+library(gglorenz) # Plotting Lorenz Curve with the Blessing of 'ggplot2', CRAN v0.0.2
+
+```
+
+Load required data
+
+```{r}
+assim_data <- read_rds("cache/SIMS_assim_data.RDS") |> 
+  filter(amendment != "negative control")
+
+source("source/color_palettes.R")
+source("source/theme_om23.R")
+```
+
+## Tutorial
+
+The functions `DescTools::Gini()` and `ineq::Gini()` compute the Gini coefficient, taking in a vector containing non-negative elements.
+
+```{r}
+test_vector <- c(541, 1463, 2445, 3438, 4437, 5401, 6392, 8304, 11904, 22261)
+
+DescTools::Gini(test_vector, unbiased = TRUE) # corrected Gini coeff
+ineq::Gini(test_vector, corr = TRUE) # corrected Gini coeff
+
+plot(DescTools::Lc(test_vector))
+```
+
+Similarly, we can use the `gglorenz::stat_lorenz()` package to plot Lorenz curves:
+
+```{r}
+tech_ineq <- billionaires |> 
+  filter(Industry == "Technology") |> 
+  pull(TNW) |> 
+  ineq::ineq(type = "Gini") |> 
+  round(digits = 2)
+
+RE_ineq <- billionaires |> 
+  filter(Industry == "Real Estate") |> 
+  pull(TNW) |> 
+  ineq::ineq(type = "Gini") |> 
+  round(digits = 2)
+
+billionaires %>%
+  filter(Industry %in% c("Technology", "Real Estate")) %>% 
+  mutate(Industry = forcats::as_factor(Industry)) %>% 
+  ggplot(aes(x = TNW, color = Industry, fill = Industry)) +
+  stat_lorenz(geom = "polygon", alpha = 0.65) +
+  scale_x_continuous(labels = scales::percent_format()) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  geom_abline() +
+  coord_cartesian(xlim = c(0, 1), ylim = c(0,1), expand = FALSE) +
+  annotate(geom = "text", x = 0.2, y = 0.8, 
+           label = paste0("Gini = ", tech_ineq),
+           color = "red") +
+    annotate(geom = "text", x = 0.2, y = 0.85, 
+           label = paste0("Gini = ", RE_ineq),
+           color = "blue") +
+  theme_minimal() +
+  labs(
+    x = "Cumulative Percentage of Billionaires",
+    y = "Cumulative Percentage of TNW"
+  ) +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1)
+    )
+```
+
+# NanoSIMS data
+
+### Gini Coeff for Amendments
+
+```{r}
+#| fig-width: 10
+#| fig-height: 10
+
+# Calculate Gini for each well, depth, and amendment
+assim_gini <- assim_data |> 
+  group_by(depth_str, depth, well, amendment) |> 
+  summarize(
+    gini = ineq::Gini(x = rC.fmol.d, corr = TRUE),
+    gini_str = paste("Gini =", round(gini, digits = 2)),
+    mean_rC.fmol.d = mean(rC.fmol.d, na.rm = TRUE)
+  ) |> 
+  ungroup() |> 
+  mutate(
+    xpos = 0.2,
+    ypos = case_when(
+      amendment == "bicarbonate" ~ 0.85,
+      amendment == "formate" ~ 0.75,
+      amendment == "acetate" ~ 0.65
+    )
+  )
+
+# Calculate Gini for each well and depth, average across amendments
+assim_data |> 
+  ggplot(
+    aes(
+      x = rC.fmol.d,
+    )
+  ) +
+  #stat_lorenz(geom = "polygon", color = NA, alpha = 0.1) +
+  stat_lorenz(
+    aes(color = amendment),
+    geom = "path"
+  ) +
+  geom_label(
+    data = assim_gini,
+    aes(label = gini_str, x = xpos, y = ypos, color = amendment),
+    fill = NA
+  ) +
+  geom_abline() +
+  scale_fill_manual(values = amendment_palette) +
+  scale_color_manual(values = amendment_palette) +
+  facet_grid(depth_str~well)+
+  coord_cartesian(xlim = c(0, 1), ylim = c(0, 1), expand = FALSE) +
+  labs(
+    x = "Proportion of Cells",
+    y = "Proportion of Total C Assimilation"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1)
+    )
+```
+
+### Gini Coeff for wells
+
+```{r}
+well_gini <- assim_data |> 
+  group_by(well) |> 
+  summarize(
+    gini = ineq::Gini(x = rC.fmol.d, corr = TRUE),
+    gini_str = paste("Gini =", round(gini, digits = 2)),
+    mean_rC.fmol.d = mean(rC.fmol.d, na.rm = TRUE)
+  ) |> 
+  ungroup() |> 
+  mutate(
+    xpos = 0.2,
+    ypos = case_when(
+      well == "BA1B" ~ 0.85,
+      well == "BA4A" ~ 0.75,
+      well == "BA3A" ~ 0.65
+    )
+  )
+
+assim_data |> 
+  ggplot(
+    aes(
+      x = rC.fmol.d,
+    )
+  ) +
+  #stat_lorenz(geom = "polygon", color = NA, alpha = 0.1) +
+  stat_lorenz(
+    aes(color = well),
+    geom = "path",
+    linewidth = 1
+  ) +
+  geom_label(
+    data = well_gini,
+    aes(label = gini_str, x = xpos, y = ypos, color = well),
+    fill = NA
+  ) +
+  geom_abline() +
+  scale_fill_manual(values = well_palette) +
+  scale_color_manual(values = well_palette) +
+  coord_cartesian(xlim = c(0, 1), ylim = c(0, 1), expand = FALSE) +
+  labs(
+    x = "Proportion of Cells",
+    y = "Proportion of Total C Assimilation"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1)
+    )
+```
+
+### Relation b/w Gini and average growth
+
+There appears to be a weak, negative correlation between the mean carbon assimilation rate of a sample its gini coefficient.
+
+```{r}
+#| fig-width: 8
+#| fig-height: 8
+assim_gini |> 
+  mutate(log_mean_rC.fmol.d = log10(mean_rC.fmol.d)) |> 
+  ggplot(
+    aes(x = log_mean_rC.fmol.d, y = gini)
+  ) +
+  scale_color_manual(values = well_palette) +
+  geom_smooth(method = "lm", color = "black", linetype = "dashed") +
+  geom_point(aes(color = well)) +
+  ggpmisc::stat_poly_eq(ggpmisc::use_label(c("eq", "R2"))) +
+  coord_cartesian(ylim = c(0, 1), xlim = c(-6.2, -0.8), expand = FALSE) +
+  theme_minimal() +
+  labs(
+    x = latex2exp::TeX(
+      "log C assimilation $(fmol \\, cell^{-1} day^{-1}) $"
+      ),
+    y = "Gini Coefficient",
+    color = "Well"
+  ) +
+  theme(
+    panel.border = element_rect(fill = NA, color = "black", linewidth = 1),
+    panel.grid = element_blank(),
+    axis.text = element_text(color = "black", face = "bold")
+  )
+```
+
+### Distribution of Gini Coefs
+
+```{r}
+assim_gini |> 
+  ggplot(
+    aes(
+      y = gini, 
+      x = well,
+      fill = amendment,
+      color = amendment
+    )
+  ) +
+  geom_point(position = position_dodge(width = 0.3)) +
+  geom_path(position = position_dodge(width = 0.3)) +
+  scale_color_manual(values = amendment_palette) +
+  theme_om23() +
+  labs(
+    x = "", y = "Gini Coefficient",
+    color = "Carbon Source", fill = "Carbon Source"
+  ) +
+  theme(
+    panel.grid = element_blank()
+  )
+```
+
+# Export
+
+```{r}
+assim_gini |> 
+  select(well, depth, amendment, gini) |> 
+  writexl::write_xlsx("data_output/gini_summary.xlsx")
+  
+gt_assim_gini <- assim_gini |> 
+  arrange(well, depth) |> 
+  select(well, depth_str, amendment, gini) |> 
+  rename(depth = depth_str, Gini = gini) |> 
+  gt::gt() |> 
+  gt::data_color(columns = well, palette = well_palette) |> 
+  gt::data_color(columns = amendment, palette = amendment_palette) |> 
+  gt::data_color(columns = depth, palette = "Greys") |> 
+  gt::data_color(columns = Gini, palette = "Reds")
+
+gt_assim_gini |> 
+  gt::gtsave(filename = "data_output/gini_summary.html")
+
+gt_assim_gini
+```
