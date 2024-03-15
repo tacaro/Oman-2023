@@ -311,6 +311,14 @@ Now we'll join our data tables of DIC data and amendment data.
 5.  calculate growth rate `mu.d`
 6.  Define `active` cells as cells with 13C enrichment \> 3SD of the blank run. Set inactive cells mu.d to 0.
 
+Growth rate $\mu \: (d^{-1})$ is calculated according to the following equation:
+
+$$
+\mu = - \frac{1}{t} \cdot ln \left( \frac{F_T - a \cdot FL}{F_0 - a \cdot F_L} \right)
+$$
+
+where t is the incubation time in days, $F_T$ is the isotopic enrichment at time of sampling "T", a is the assimilation efficiency of carbon (assumed to be 1), $F_0$ is the isotopic enrichment at start of the incubation (natural abundance 13C), and $F_L$ is the label strength applied.
+
 ```{r}
 # set activity threshold
 F13C.activity_threshold <- neg_ctl_mean + (3 * neg_ctl_sd)
@@ -826,7 +834,7 @@ p_gen_time
 cowplot::save_plot(
   plot = p_gen_time,
   filename = "fig_output/gentime_combined.pdf",
-  base_width = 10, base_height = 4
+  base_width = 10, base_height = 6
   )
 ```
 
@@ -1084,8 +1092,32 @@ assim_data <- growth_data |>
     # calculate rate of assimilation per day
     # fg/day
     rC.fg.d = calculate_assim_rate(mu = assim.C.fg, t = dt),
-    # convert to fmol/cell/day by dividing fg / 12.01 fg/fmol
     rC.fmol.d = rC.fg.d / 12.01
+  ) |> 
+  mutate(
+    rC.fg.d = case_when(
+      rC.fg.d < 0 ~ 0,
+      rC.fg.d >= 0 ~ rC.fg.d
+      ),
+    rC.fmol.d = case_when(
+      rC.fmol.d < 0 ~ 0,
+      rC.fmol.d >= 0 ~ rC.fmol.d
+      ),
+    assim.C.fg = case_when(
+      assim.C.fg < 0 ~ 0,
+      assim.C.fg >= 0 ~ assim.C.fg
+      )
+  ) |> 
+  mutate(
+    well = factor(well, levels = c("BA1B", "BA4A", "BA3A")),
+    depth_str = factor(case_when(
+      depth == 20 ~ "Shallow (20m)",
+      depth == 150 ~ "Intermediate (150m)",
+      depth == 250 ~ "Deep (250/270m)",
+      depth == 270 ~ "Deep (250/270m)"
+    ),
+    levels = c("Shallow (20m)","Intermediate (150m)","Deep (250/270m)")
+    )
   )
 
 
@@ -1094,177 +1126,234 @@ assim_data <- growth_data |>
 #### Plot 3: Plot Carbon Assimilation Rate
 
 ```{r}
-# define a plotting helper function
-plot_carbon_assim <- function(well_choice) {
-  color_choice = case_when(
-      well_choice == "BA1B" ~ 1,
-      well_choice == "BA3A" ~ 3,
-      well_choice == "BA4A" ~ 2,
-    )
-  
-  # now plot!
-  assim_data |> 
-  filter(amendment != "negative control") |> # filter negative controls out
-  # add "quantified" where sample is quantified if 3sigma > mean neg CTL
+p_fmolC <- assim_data |> 
+  # add quantification cutoff: 3SD above neg ctl
   mutate(quantified = if_else(
     at13C > (neg_ctl_mean + (3*neg_ctl_sd)),
     true = TRUE,
     false = FALSE)
     ) |>
-  # uncomment this to remove samples that were not above background from plot
-  # filter(quantified) |>
-  filter(well == well_choice) |> 
-  mutate(
-    depth_str = paste0(depth, "m"),
-    depth_str = forcats::fct_reorder(
-      depth_str, depth, .desc = TRUE
-      )
-  ) |> 
-  ggplot() +
-  aes(
-    x = rC.fmol.d,
-    y = depth_str,
-    color = amendment,
-    shape = amendment
+  filter(amendment != "negative control") |> 
+  filter(rC.fmol.d > 0) |> 
+  ggplot(
+    aes(x = rC.fmol.d, y = depth_str, color = amendment)
   ) +
   geom_point(
     data = function(df) df |> filter(!quantified),
-    position = position_jitterdodge(
-      jitter.width = 0.1,
-      jitter.height = 0,
-      dodge.width = 0.5
-    ),
-    alpha = 0.5,
-    size = 1,
-    color = "gray30"
-  ) +  
+    shape = 124,
+    position = position_nudge(y = -0.2),
+    color = "gray") +
   geom_point(
     data = function(df) df |> filter(quantified),
-    position = position_jitterdodge(
-      jitter.width = 0.1,
-      jitter.height = 0,
-      dodge.width = 0.5
-    ),
-    alpha = 0.5,
-    size = 1,
-  ) +
-  ggdist::stat_pointinterval(
-    aes(group = amendment), 
-    position = position_dodge(0.5),
-    point_size = 4,
-    color = "black"
-    ) +
-  scale_color_manual(values = amendment_palette) + 
-  #scale_x_continuous(breaks = c(0, 0.2, 0.4, 0.6, .8)) +
-  coord_cartesian(xlim = c(1e-5, 1e0)) +
-  scale_x_log10(
-    labels = scales::trans_format("log10", 
-    scales::math_format(10^.x)),
-    breaks = c(1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0)
-    ) +
-  facet_wrap(vars(well)) +
-  annotation_logticks(sides = "bt") +
-  theme_bw() +
-  labs(
-    x = latex2exp::TeX("fmol C $cell^{-1}$ $day^{-1}$"),
-    y = "",
-    color = "Carbon Source",
-    shape = "Carbon Source"
-  ) +
-  theme_om23() +
-  theme(
-    legend.position = "None", # legend?
-    axis.ticks.y = element_blank(),
-    plot.margin = margin(0.25,0.25,0.25,0.25, "cm"),
-    strip.background = element_rect(fill = well_palette[color_choice]),
-    strip.text = element_text(margin = margin(0.2,0,0.2,0, "cm"))
-  )
-}
-
-plot_carbon_assim("BA1B")
-
-# get a legend
-p_carbon_assim_ba4a_w_legend <- assim_data |> 
-  filter(amendment != "negative control") |> # filter negative controls out
-  # add "quantified" where sample is quantified if 3sigma above the mean natabund ctl
-  mutate(quantified = if_else(
-    at13C > (neg_ctl_mean + (3*neg_ctl_sd)),
-    true = TRUE,
-    false = FALSE
-  )) |> 
-  filter(quantified) |>
-# choose the well:
-  filter(well == "BA4A") |> 
-  mutate(
-    depth_str = paste0(depth, "m"),
-    depth_str = forcats::fct_reorder(
-      depth_str, depth, .desc = TRUE
-      )
-  ) |> 
-  ggplot() +
-  aes(
-    x = rC.fmol.d,
-    y = depth_str
-  ) +
-  geom_point(
-    aes(
-      color = amendment,
-      shape = amendment
-      ),
-  position = position_jitterdodge(
-    jitter.width = .1,
-    dodge.width = .5
-    ),
-  alpha = 0.5,
-  size = 2
-  ) +
+    shape = 124,
+    position = position_nudge(y = -0.2)) +
   ggdist::stat_halfeye(
-    aes(group = amendment,
-        ),
-    position = position_dodge(0.5),
-    point_size = 4,
-    #color = "black"
+    color = "black", 
+    height = 0.8,
+    point_interval = "mean_qi", # mean quantile interval
+    .width = c(0.66, 0.95) # 66% and 95% CI
     ) +
-  scale_color_manual(values = amendment_palette) + 
-  scale_x_continuous(breaks = c(0, 0.2, 0.4, 0.6, .8)) +
-  coord_cartesian(xlim = c(0, .85)) +
-  facet_wrap(vars(well)) +
-  theme_bw() +
+  facet_grid(amendment~well) +
+  scale_color_manual(values = amendment_palette) +
+  scale_x_log10(
+    breaks = c(1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0),
+    labels = scales::trans_format("log10", 
+    scales::math_format(10^.x))
+    ) +
+  scale_y_discrete(limits = rev) +
+  coord_cartesian(xlim = c(1e-6, 1e0)) +
+  annotation_logticks(sides = "b") +
   labs(
-    x = latex2exp::TeX("fmol C $cell^{-1}$ $day^{-1}$"),
+    x = latex2exp::TeX("fmol C $cell^{-1} \\; day^{-1}$"),
     y = "",
-    color = "Carbon Source",
-    shape = "Carbon Source"
+    color = "Carbon Source"
   ) +
   theme_om23() +
   theme(
-    strip.background = element_rect(fill = well_palette[3]),
-    strip.text = element_text(margin = margin(0.2,0,0.2,0, "cm"))
-  )
-p_carbon_assim_ba4a_w_legend
-
-p_carbon_assim_legend <- cowplot::get_legend(p_carbon_assim_ba4a_w_legend)
-
-p_carbon_assim_combined <- cowplot::plot_grid(
-  cowplot::plot_grid(
-    plot_carbon_assim(well_choice = "BA1B"),
-    plot_carbon_assim(well_choice = "BA4A"),
-    plot_carbon_assim(well_choice = "BA3A"),
-    ncol = 3,
-    nrow = 1
-  ),
-  p_carbon_assim_legend,
-  rel_widths = c(0.9, 0.1)
-) 
-  
-
-p_carbon_assim_combined
+    panel.spacing = unit(0.1, "cm"),
+    panel.grid.major.x = element_line(linetype = "dotted")
+    )
 
 cowplot::save_plot(
-  filename = "fig_output/carbon_assim_combined.pdf",
-  plot = p_carbon_assim_combined, 
-  base_width = 10, base_height = 4,
-  )
+  plot = p_fmolC,
+  filename = "fig_output/p_fmolC.pdf",
+  base_height = 6,
+  base_width = 10
+)
+```
+
+```{r}
+# # define a plotting helper function
+# plot_carbon_assim <- function(well_choice) {
+#   color_choice = case_when(
+#       well_choice == "BA1B" ~ 1,
+#       well_choice == "BA3A" ~ 3,
+#       well_choice == "BA4A" ~ 2,
+#     )
+#   
+#   # now plot!
+#   assim_data |> 
+#   filter(amendment != "negative control") |> # filter negative controls out
+#   # add "quantified" where sample is quantified if 3sigma > mean neg CTL
+#   mutate(quantified = if_else(
+#     at13C > (neg_ctl_mean + (3*neg_ctl_sd)),
+#     true = TRUE,
+#     false = FALSE)
+#     ) |>
+#   # uncomment this to remove samples that were not above background from plot
+#   # filter(quantified) |>
+#   filter(well == well_choice) |> 
+#   mutate(
+#     depth_str = paste0(depth, "m"),
+#     depth_str = forcats::fct_reorder(
+#       depth_str, depth, .desc = TRUE
+#       )
+#   ) |> 
+#   ggplot() +
+#   aes(
+#     x = rC.fmol.d,
+#     y = depth_str,
+#     color = amendment,
+#     shape = amendment
+#   ) +
+#   geom_point(
+#     data = function(df) df |> filter(!quantified),
+#     position = position_jitterdodge(
+#       jitter.width = 0.1,
+#       jitter.height = 0,
+#       dodge.width = 0.5
+#     ),
+#     alpha = 0.5,
+#     size = 1,
+#     color = "gray30"
+#   ) +  
+#   geom_point(
+#     data = function(df) df |> filter(quantified),
+#     position = position_jitterdodge(
+#       jitter.width = 0.1,
+#       jitter.height = 0,
+#       dodge.width = 0.5
+#     ),
+#     alpha = 0.5,
+#     size = 1,
+#   ) +
+#   ggdist::stat_pointinterval(
+#     aes(group = amendment), 
+#     position = position_dodge(0.5),
+#     point_size = 4,
+#     color = "black"
+#     ) +
+#   scale_color_manual(values = amendment_palette) + 
+#   #scale_x_continuous(breaks = c(0, 0.2, 0.4, 0.6, .8)) +
+#   coord_cartesian(xlim = c(1e-5, 1e0)) +
+#   scale_x_log10(
+#     labels = scales::trans_format("log10", 
+#     scales::math_format(10^.x)),
+#     breaks = c(1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0)
+#     ) +
+#   facet_wrap(vars(well)) +
+#   annotation_logticks(sides = "bt") +
+#   theme_bw() +
+#   labs(
+#     x = latex2exp::TeX("fmol C $cell^{-1}$ $day^{-1}$"),
+#     y = "",
+#     color = "Carbon Source",
+#     shape = "Carbon Source"
+#   ) +
+#   theme_om23() +
+#   theme(
+#     legend.position = "None", # legend?
+#     axis.ticks.y = element_blank(),
+#     plot.margin = margin(0.25,0.25,0.25,0.25, "cm"),
+#     strip.background = element_rect(fill = well_palette[color_choice]),
+#     strip.text = element_text(margin = margin(0.2,0,0.2,0, "cm"))
+#   )
+# }
+# 
+# plot_carbon_assim("BA1B")
+# 
+# # get a legend
+# p_carbon_assim_ba4a_w_legend <- assim_data |> 
+#   filter(amendment != "negative control") |> # filter negative controls out
+#   # add "quantified" where sample is quantified if 3sigma above the mean natabund ctl
+#   mutate(quantified = if_else(
+#     at13C > (neg_ctl_mean + (3*neg_ctl_sd)),
+#     true = TRUE,
+#     false = FALSE
+#   )) |> 
+#   filter(quantified) |>
+# # choose the well:
+#   filter(well == "BA4A") |> 
+#   mutate(
+#     depth_str = paste0(depth, "m"),
+#     depth_str = forcats::fct_reorder(
+#       depth_str, depth, .desc = TRUE
+#       )
+#   ) |> 
+#   ggplot() +
+#   aes(
+#     x = rC.fmol.d,
+#     y = depth_str
+#   ) +
+#   geom_point(
+#     aes(
+#       color = amendment,
+#       shape = amendment
+#       ),
+#   position = position_jitterdodge(
+#     jitter.width = .1,
+#     dodge.width = .5
+#     ),
+#   alpha = 0.5,
+#   size = 2
+#   ) +
+#   ggdist::stat_halfeye(
+#     aes(group = amendment,
+#         ),
+#     position = position_dodge(0.5),
+#     point_size = 4,
+#     #color = "black"
+#     ) +
+#   scale_color_manual(values = amendment_palette) + 
+#   scale_x_continuous(breaks = c(0, 0.2, 0.4, 0.6, .8)) +
+#   coord_cartesian(xlim = c(0, .85)) +
+#   facet_wrap(vars(well)) +
+#   theme_bw() +
+#   labs(
+#     x = latex2exp::TeX("fmol C $cell^{-1}$ $day^{-1}$"),
+#     y = "",
+#     color = "Carbon Source",
+#     shape = "Carbon Source"
+#   ) +
+#   theme_om23() +
+#   theme(
+#     strip.background = element_rect(fill = well_palette[3]),
+#     strip.text = element_text(margin = margin(0.2,0,0.2,0, "cm"))
+#   )
+# p_carbon_assim_ba4a_w_legend
+# 
+# p_carbon_assim_legend <- cowplot::get_legend(p_carbon_assim_ba4a_w_legend)
+# 
+# p_carbon_assim_combined <- cowplot::plot_grid(
+#   cowplot::plot_grid(
+#     plot_carbon_assim(well_choice = "BA1B"),
+#     plot_carbon_assim(well_choice = "BA4A"),
+#     plot_carbon_assim(well_choice = "BA3A"),
+#     ncol = 3,
+#     nrow = 1
+#   ),
+#   p_carbon_assim_legend,
+#   rel_widths = c(0.9, 0.1)
+# ) 
+#   
+# 
+# p_carbon_assim_combined
+
+# cowplot::save_plot(
+#   filename = "fig_output/carbon_assim_combined.pdf",
+#   plot = p_carbon_assim_combined, 
+#   base_width = 10, base_height = 4,
+#   )
 ```
 
 ### Table summary of C assimilation rates
