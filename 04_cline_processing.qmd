@@ -22,6 +22,10 @@ rm(list=ls())
 library(tidyverse)
 library(plater)
 library(ggpmisc)
+
+
+source("source/color_palettes.R")
+source("source/theme_om23.R")
 ```
 
 ### Load plates with plater package
@@ -224,7 +228,7 @@ cline_data_corrected <- cline_data |>
       str_detect(sample_id, "BIC") ~ "Bicarbonate",
       str_detect(sample_id, "AC") ~ "Acetate",
       str_detect(sample_id, "F") ~ "Formate",
-      str_detect(sample_id, "CTL") ~ "Control",
+      str_detect(sample_id, "CTL") ~ "None",
     )
   ) |> 
   # remove diluted samples:
@@ -238,9 +242,17 @@ cline_data_corrected <- cline_data |>
   # add timepoint info
   mutate(
     sample_set = if_else(
-      amendment == "Control",
+      amendment == "None",
       true = "CTL",
       false = "A"
+    )
+  ) |> 
+  mutate(
+    depth_str = case_when(
+      depth == 20 ~ "Shallow (20m)",
+      depth == 150 ~ "Intermediate (150m)",
+      depth == 250 ~ "Deep (250/270m)",
+      depth == 270 ~ "Deep (250/270m)"
     )
   )
   
@@ -249,89 +261,42 @@ cline_data_corrected <- cline_data |>
 # Plot concentration of sulfide
 
 ```{r}
-custom_order <- c("Acetate", "Bicarbonate", "Formate", "Control")
+custom_order <- c("Acetate", "Bicarbonate", "Formate", "None")
 
 cline_data_corrected |> 
   mutate(amendment = fct_relevel(amendment, custom_order)) |>
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
   ggplot() +
   aes(
     x = amendment,
     y = conc.um,
-    label = label
+    label = label,
+    fill = well
   ) +
-  geom_col(fill = "black", width = 0.5) +
-  geom_text(size = 2, nudge_y = 30) +
-  facet_wrap(vars(well, depth)) +
-  scale_y_continuous(expand = c(0, 0), limits = c(0, 500)) +
-  theme_bw() +
+  geom_col(width = 0.5) +
+  scale_fill_manual(values = well_palette) +
+  geom_errorbar(aes(
+    ymin = conc.um - sd.conc.um,
+    ymax = conc.um + sd.conc.um),
+    width = 0.2
+  ) +
+  #geom_text(size = 2, nudge_y = 30) +
+  facet_grid(depth_str~well) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 500), breaks = c(0, 100, 200, 300, 400)) +
+  theme_om23() +
   labs(
-    x = "Amendment",
+    fill = "",
+    x = "",
     y = "Sulfide Concentration (µM)"
   ) +
   theme(
     axis.text.x = element_text(angle = 45, hjust = 1),
     panel.grid.major.x = element_blank(),
     panel.grid.major.y = element_line(linetype = "dotted", color = "gray"),
-    panel.grid.minor.y = element_blank()
+    panel.grid.minor.y = element_blank(),
+    panel.spacing = unit(0.1, "cm")
   )
 #plotly::ggplotly()
-```
-
-# Plot difference of sulfide from control
-
-```{r}
-control_df <- cline_data_corrected |> 
-  filter(str_detect(sample_id, "CTL")) |> 
-  select(sample_id, conc.um.corr, well, depth) |> 
-  rename(ctl.conc.um = conc.um.corr)
-
-cline_data_diff <- cline_data_corrected |> 
-  left_join(control_df, by = c("well", "depth")) |> 
-  mutate(
-    diff.conc.um = conc.um.corr - ctl.conc.um,
-    label = if_else(
-      conc.um.corr > 3,
-      true = as.character(round(diff.conc.um,1)),
-      false = "ND"
-    )
-  )
-
-cline_data_diff |> 
-  mutate(amendment = fct_relevel(amendment, custom_order)) |>
-  filter(amendment != "Control") |> 
-  ggplot() +
-  aes(
-    x = amendment,
-    y = diff.conc.um,
-    label = label
-  ) +
-  ggrepel::geom_text_repel(
-    nudge_x = 0.5, 
-    nudge_y = 100, 
-    size = 3, 
-    color = "red",
-    segment.alpha = 0.25,
-    segment.curvature = 1
-    ) +
-  geom_point(size = 2) +
-  geom_linerange(
-    aes(ymin = 0, ymax = diff.conc.um)
-  ) +
-  geom_hline(yintercept = 0, color = "black") +
-  #geom_text(size = 2, nudge_y = 30) +
-  facet_wrap(vars(well, depth)) +
-  scale_y_continuous(expand = c(0, 0), limits = c(-500, 500)) +
-  theme_bw() +
-  labs(
-    x = "Amendment",
-    y = "Change in Sulfide Concentration (µM)"
-  ) +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    panel.grid.major.x = element_blank(),
-    panel.grid.major.y = element_line(linetype = "dotted", color = "gray"),
-    panel.grid.minor.y = element_blank()
-  )
 ```
 
 # Export and Cache
