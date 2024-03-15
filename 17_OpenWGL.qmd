@@ -1,0 +1,158 @@
+---
+title: "OpenWGL Data"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+## Setup
+
+```{r}
+library(tidyverse) # Easily Install and Load the 'Tidyverse', CRAN v2.0.0
+library(patchwork) # The Composer of Plots, CRAN v1.1.3
+library(ggstackplot)
+```
+
+```{r}
+BA1B <- read.csv("data/OpenWGL_2024/BA1B_5Mar24_log.csv") |> 
+  mutate(well = "BA1B") |> 
+  mutate(pH = NA) # remove bad pH values
+  
+BA1A <- read.csv("data/OpenWGL_2024/BA1A_5Mar24_log.csv") |> mutate(well = "BA1A")
+BA4A <- read.csv("data/OpenWGL_2024/BA4A_4Mar24_log.csv") |> mutate(well = "BA4A")
+BA1D <- read.csv("data/OpenWGL_2024/BA1D_5Mar24_log.csv") |> mutate(well = "BA1D")
+NSHQ14 <- read.csv("data/OpenWGL_2024/NSHQ14_29Feb24_log.csv") |> mutate(well = "NSHQ14")
+BA3A_first <- read.csv("data/OpenWGL_2024/BA3A_1Mar24.TXT") |> mutate(well = "BA3A")
+BA3A_second <- read.csv("data/OpenWGL_2024/BA3A_4Mar24.TXT") |> mutate(well = "BA3A")
+
+```
+
+```{r}
+combined <- bind_rows(BA1B, BA1A, BA4A, BA1D, NSHQ14)
+```
+
+# Plot
+
+```{r}
+p_EC <- combined |> 
+  filter(direction == "Descending") |> 
+  ggplot(
+    aes(
+      x = cond_uscm,
+      y = depth_m,
+      color = well
+    )
+  ) +
+  geom_path(linewidth = 1) +
+  scale_color_brewer(palette = "Dark2") +
+  scale_y_reverse() +
+  #facet_grid(.~well) +
+  ggprism::annotation_ticks(sides = "blr") +
+  labs(
+    y = "Depth (mbs)",
+    x = "Electrical Conductivity (µS/cm)"
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "bottom",
+    strip.text = element_text(color = "white", face = "bold"),
+    strip.background = element_rect(color = "black", fill = "black")
+  )
+p_EC
+
+p_EC_w_legend <- combined |> 
+  ggplot(
+    aes(
+      x = cond_uscm,
+      y = depth_m,
+      color = well
+    )
+  ) +
+  geom_path(linewidth = 1) +
+  scale_color_brewer(palette = "Dark2") +
+  scale_y_reverse() +
+  #facet_grid(.~well) +
+  ggprism::annotation_ticks(sides = "blr") +
+  labs(
+    y = "Depth (mbs)",
+    x = "Electrical Conductivity (µS/cm)"
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "right",
+    strip.text = element_text(color = "white", face = "bold"),
+    strip.background = element_rect(color = "black", fill = "black")
+  )
+p_EC_w_legend
+```
+
+```{r}
+p_pH <- combined |> 
+  filter(direction == "Descending") |> 
+  ggplot(
+    aes(
+      x = pH,
+      y = depth_m,
+      color = well
+    )
+  ) +
+  geom_path(linewidth = 1) +
+  scale_color_brewer(palette = "Dark2") +
+  scale_y_reverse() +
+  #facet_grid(.~well) +
+  ggprism::annotation_ticks(sides = "blr") +
+  labs(
+    y = "Depth (mbs)",
+    x = "pH"
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "bottom",
+    strip.text = element_text(color = "white", face = "bold"),
+    strip.background = element_rect(color = "black", fill = "black")
+  )
+p_pH
+```
+
+```{r}
+p_temp <- combined |> 
+  filter(direction == "Descending") |> 
+  ggplot(
+    aes(
+      x = temp_C,
+      y = depth_m,
+      color = well
+    )
+  ) +
+  geom_path(linewidth = 1) +
+  scale_color_brewer(palette = "Dark2") +
+  scale_y_reverse() +
+  #facet_grid(.~well) +
+  ggprism::annotation_ticks(sides = "blr") +
+  labs(
+    y = "Depth (mbs)",
+    x = "Temperature (C)"
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "bottom",
+    strip.text = element_text(color = "white", face = "bold"),
+    strip.background = element_rect(color = "black", fill = "black")
+  )
+p_temp
+```
+
+```{r}
+legend <- cowplot::get_legend(p_EC_w_legend)
+
+p_all <- cowplot::plot_grid(p_temp, p_EC, p_pH, legend, ncol = 4, rel_widths = c(0.3, 0.3, 0.3, 0.1))
+p_all
+
+cowplot::save_plot(
+  plot = p_all,
+  filename = "fig_output/OM24_OpenWGL.pdf",
+  base_height = 8,
+  base_width = 12
+)
+```
