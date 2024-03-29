@@ -555,7 +555,7 @@ BA_mass <- assim_data |> select(well, depth, cell.C.fg) |>
   rename(core = well) |> 
   mutate(core = factor(core, levels = c("BA1B", "BA4A", "BA3A")))
   
-BA_mass |> ggplot(
+p_biomass <- BA_mass |> ggplot(
   aes(
     x = cell.C.fg, y = core
   )
@@ -568,6 +568,9 @@ BA_mass |> ggplot(
   theme(
     axis.text = element_text(color = "black")
   )
+
+p_biomass |> cowplot::save_plot(filename = "fig_output/cs_biomass.pdf",
+                                base_height = 2, base_width = 4)
 ```
 
 # Export
