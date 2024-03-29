@@ -186,23 +186,23 @@ assim_data_summary |>
 #| label: plot MSP
 #| code-fold: true
 
-assim_data_summary |> 
+p_MSP <- assim_data_summary |> 
   filter(mu_star.yr > 0) |> 
   ggplot(
     aes(
       x = MSP.J_s_g,
       y = depth_str,
-      color = amendment
+      color = well
     )
   ) +
-  ggdist::stat_pointinterval(point_interval = "mean_qi", color = "black") +
+  ggdist::stat_pointinterval(point_interval = "mean_qi") +
   annotation_logticks(sides = "b") +
-  scale_x_log10(breaks = c(1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0),
+  scale_x_log10(breaks = c(1e-5, 1e-3, 1e-1),
                 labels = scales::trans_format("log10", scales::math_format(10^.x))) +
   scale_color_manual(values = well_palette) +
-  facet_grid(amendment~well) +
+  facet_grid(well~amendment) +
   labs(
-    x = latex2exp::TeX("MSP $[J \\cdot s^{-1} \\cdot gC_{biomass}^{-1}]$"),
+    x = latex2exp::TeX("MSP $[W \\cdot gC_{biomass}^{-1}]$"),
     y = ""
   ) +
   theme_om23() + 
@@ -210,6 +210,10 @@ assim_data_summary |>
     panel.spacing = unit(0.15, "cm"),
     legend.position = "None"
   )
+p_MSP
+
+# cowplot::save_plot(plot = p_MSP, filename = "fig_output/MSP.pdf",
+#                    base_height = 4, base_width = 6)
 ```
 
 Inspecting our data, it is clear that estimates of mass-specific carbon turnover diverge from estimates of biomass generation time. The distinction between these two metrics is that biomass carbon turnover assumes a steady state pool of Carbon. In other words, microbial biomass is not increasing at the aggregate level. When we estimate microbial *growth rate*, we are assuming that cellular division takes place and that microbial biomass is increasing. The growth rate and generation time calculations introduce a natural log term to account for clonal growth. We can see how these values diverge by plotting the "generation rate" (number of cellular generations per year) versus the mass-specific carbon turnover rate (number of cell carbon turnovers per year) where generation rate is defined as the inverse of generation time. Generation time is calculated via the specific growth rate $(\mu_{growth})$ that assumes clonal cell growth:
@@ -299,7 +303,7 @@ Plot it:
 #| label: plot H2 oxidation rate
 #| code-fold: true
 
-assim_metabolic |> 
+p_h2 <- assim_metabolic |> 
   filter(mu_star.yr > 0) |> 
   filter(amendment == "bicarbonate") |> 
   ggplot(
@@ -311,10 +315,10 @@ assim_metabolic |>
   ) +
   geom_vline(xintercept = 3.95, color = "red", linewidth = 0.1) +
   ggdist::stat_pointinterval(point_interval = "mean_qi", color = "black") +
-  ggdist::stat_pointinterval(aes(x = SRB_H2ox.tonnes_yr_km3),
-                             point_interval = "mean_qi", color = "#e39714",
-                             position = position_nudge(y = -0.2),
-                             shape = 15) +
+  # ggdist::stat_pointinterval(aes(x = SRB_H2ox.tonnes_yr_km3),
+  #                            point_interval = "mean_qi", color = "#e39714",
+  #                            position = position_nudge(y = -0.2),
+  #                            shape = 15) +
   annotation_logticks(sides = "b") +
   scale_x_log10(
                 labels = scales::trans_format("log10", scales::math_format(10^.x))) +
@@ -330,6 +334,10 @@ assim_metabolic |>
     panel.spacing = unit(0.15, "cm"),
     legend.position = "None"
   )
+p_h2
+
+cowplot::save_plot(plot = p_h2, filename = "fig_output/h2_ox_tonnes.pdf",
+                   base_height = 5, base_width = 6)
 ```
 
 The value estimated by Templeton et al. (2024 - in review) of 3.95 tonnes $H_2/km^3/yr$, indicated by the vertical red line, appears to be an under-estimate of hydrogen oxidation via methanogenesis. The cause of this is that Templeton et al. assume a cellular turnover rate of 1 $yr^{-1}$, a slower turnover rate than what is actually observed in many parts of the system.
