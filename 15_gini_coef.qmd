@@ -37,7 +37,7 @@ Load required libraries
 #| message: false
 library(tidyverse) # Easily Install and Load the 'Tidyverse', CRAN v2.0.0
 library(gglorenz) # Plotting Lorenz Curve with the Blessing of 'ggplot2', CRAN v0.0.2
-
+library(ggside)
 ```
 
 Load required data
@@ -123,20 +123,22 @@ assim_gini <- assim_data |>
   mutate(
     xpos = 0.2,
     ypos = case_when(
-      amendment == "bicarbonate" ~ 0.85,
-      amendment == "formate" ~ 0.75,
-      amendment == "acetate" ~ 0.65
+      amendment == "bicarbonate" ~ 0.95,
+      amendment == "formate" ~ 0.85,
+      amendment == "acetate" ~ 0.75
     )
   )
 
 # Calculate Gini for each well and depth, average across amendments
-assim_data |> 
+p_gini <- assim_data |> 
   ggplot(
     aes(
       x = rC.fmol.d,
+      linetype = amendment
     )
   ) +
-  #stat_lorenz(geom = "polygon", color = NA, alpha = 0.1) +
+  geom_vline(xintercept = 0.5, color = "gray", linewidth = 0.1) +
+  geom_hline(yintercept = 0.5, color = "gray", linewidth = 0.1) +
   stat_lorenz(
     aes(color = amendment),
     geom = "path"
@@ -144,28 +146,46 @@ assim_data |>
   geom_label(
     data = assim_gini,
     aes(label = gini_str, x = xpos, y = ypos, color = amendment),
-    fill = NA
+    fill = NA,
+    size = 3,
+    show.legend = FALSE
   ) +
   geom_abline() +
   scale_fill_manual(values = amendment_palette) +
   scale_color_manual(values = amendment_palette) +
+  scale_x_continuous(breaks = c(0, 0.5, 1), labels = c(0, 0.5, 1)) +
+  scale_y_continuous(breaks = c(0, 0.5, 1), labels = c(0, 0.5, 1)) +
+  scale_linetype_manual(values = c("dotted", "solid", "dashed")) +
   facet_grid(depth_str~well)+
   coord_cartesian(xlim = c(0, 1), ylim = c(0, 1), expand = FALSE) +
   labs(
     x = "Proportion of Cells",
-    y = "Proportion of Total C Assimilation"
+    y = "Proportion of Total C Assimilation",
+    color = "Carbon Source",
+    linetype = "Carbon Source"
   ) +
-  theme_minimal() +
+  theme_bw() +
   theme(
-    panel.border = element_rect(color = "black", fill = NA, linewidth = 1)
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1),
+    aspect.ratio = 1,
+    panel.grid = element_blank(),
+    legend.position = "bottom",
+    panel.spacing = unit(0.25, "cm"),
+    axis.text = element_text(color = "black"),
+    strip.background = element_rect(fill = "black", color = "black"),
+    strip.text = element_text(color = "white", face = "bold")
     )
+p_gini
+
+cowplot::save_plot(plot = p_gini, filename = "fig_output/gini.pdf",
+                   base_height = 7, base_width = 7)
 ```
 
 ### Gini Coeff for wells
 
 ```{r}
 well_gini <- assim_data |> 
-  group_by(well) |> 
+  group_by(well, depth) |> 
   summarize(
     gini = ineq::Gini(x = rC.fmol.d, corr = TRUE),
     gini_str = paste("Gini =", round(gini, digits = 2)),
@@ -173,43 +193,71 @@ well_gini <- assim_data |>
   ) |> 
   ungroup() |> 
   mutate(
-    xpos = 0.2,
+    xpos = 0.17,
     ypos = case_when(
-      well == "BA1B" ~ 0.85,
-      well == "BA4A" ~ 0.75,
-      well == "BA3A" ~ 0.65
+      well == "BA1B" ~ 0.95,
+      well == "BA4A" ~ 0.85,
+      well == "BA3A" ~ 0.75
     )
-  )
+  ) |> 
+  mutate(depth_str = case_when(
+    depth == 20 ~ "Shallow (20m)",
+    depth == 150 ~ "Intermediate (150m)",
+    depth == 250 ~ "Deep (250/270m)",
+    depth == 270 ~ "Deep (250/270m)",
+  ))
 
-assim_data |> 
+p_well_gini <- assim_data |> 
+  mutate(
+    depth_str = factor(
+      depth_str, 
+      levels = c("Shallow (20m)", "Intermediate (150m)", "Deep (250/270m)"))
+    ) |> 
   ggplot(
     aes(
       x = rC.fmol.d,
     )
   ) +
-  #stat_lorenz(geom = "polygon", color = NA, alpha = 0.1) +
-  stat_lorenz(
-    aes(color = well),
-    geom = "path",
-    linewidth = 1
-  ) +
   geom_label(
     data = well_gini,
     aes(label = gini_str, x = xpos, y = ypos, color = well),
-    fill = NA
+    fill = NA,
+    size = 3,
+    show.legend = FALSE
   ) +
+  stat_lorenz(
+    aes(color = well, linetype = well),
+    geom = "path",
+    linewidth = 0.75
+  ) +
+  facet_grid(.~as.factor(depth_str)) +
   geom_abline() +
+  scale_x_continuous(breaks = c(0, 0.5, 1), labels = c(0, 0.5, 1)) +
+  scale_y_continuous(breaks = c(0, 0.5, 1), labels = c(0, 0.5, 1)) +
   scale_fill_manual(values = well_palette) +
   scale_color_manual(values = well_palette) +
+  scale_linetype_manual(values = c("solid", "dashed", "dotted")) +
   coord_cartesian(xlim = c(0, 1), ylim = c(0, 1), expand = FALSE) +
   labs(
     x = "Proportion of Cells",
-    y = "Proportion of Total C Assimilation"
+    y = "Proportion of Total C Assimilation",
+    color = "Borehole",
+    linetype = "Borehole"
   ) +
-  theme_minimal() +
+  theme_bw() +
   theme(
-    panel.border = element_rect(color = "black", fill = NA, linewidth = 1)
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1),
+    panel.grid = element_blank(),
+    aspect.ratio = 1,
+    axis.text = element_text(color = "black"),
+    strip.background = element_rect(fill = "black", color = "black"),
+    strip.text = element_text(color = "white", face = "bold"),
+    panel.spacing = unit(0.25, "cm")
     )
+p_well_gini
+
+cowplot::save_plot(plot = p_well_gini, filename = "fig_output/well_gini.pdf",
+                   base_height = 5, base_width = 8)
 ```
 
 ### Relation b/w Gini and average growth
@@ -219,29 +267,44 @@ There appears to be a weak, negative correlation between the mean carbon assimil
 ```{r}
 #| fig-width: 8
 #| fig-height: 8
-assim_gini |> 
+p_gini_vs_assim <- assim_gini |> 
   mutate(log_mean_rC.fmol.d = log10(mean_rC.fmol.d)) |> 
   ggplot(
     aes(x = log_mean_rC.fmol.d, y = gini)
   ) +
   scale_color_manual(values = well_palette) +
+  scale_fill_manual(values = well_palette) +
   geom_smooth(method = "lm", color = "black", linetype = "dashed") +
-  geom_point(aes(color = well)) +
-  ggpmisc::stat_poly_eq(ggpmisc::use_label(c("eq", "R2"))) +
+  geom_point(aes(fill = well), color = "black", shape = 21) +
+  ggpmisc::stat_poly_eq(ggpmisc::use_label(c("eq", "R2")),
+                        label.x = "left", label.y = "bottom") +
+  geom_xsideboxplot(aes(y = well, color = well), orientation = "y", 
+                    outlier.shape = NA, show.legend = FALSE) +
+  geom_ysideboxplot(aes(x = well, color = well), orientation = "x", 
+                    outlier.shape = NA, show.legend = FALSE) +
   coord_cartesian(ylim = c(0, 1), xlim = c(-6.2, -0.8), expand = FALSE) +
-  theme_minimal() +
+  theme_bw() +
   labs(
     x = latex2exp::TeX(
       "log C assimilation $(fmol \\, cell^{-1} day^{-1}) $"
       ),
     y = "Gini Coefficient",
-    color = "Well"
+    color = "Borehole",
+    fill = "Borehole"
   ) +
   theme(
     panel.border = element_rect(fill = NA, color = "black", linewidth = 1),
     panel.grid = element_blank(),
-    axis.text = element_text(color = "black", face = "bold")
+    axis.text = element_text(color = "black", face = "bold"),
+    ggside.axis.text = element_blank(),
+    ggside.axis.ticks = element_blank(),
+    aspect.ratio = 1
   )
+p_gini_vs_assim
+
+cowplot::save_plot(plot = p_gini_vs_assim, filename = "fig_output/gini_vs_assim.pdf",
+                   base_height = 6,
+                   base_width = 6)
 ```
 
 ### Distribution of Gini Coefs
@@ -252,13 +315,13 @@ assim_gini |>
     aes(
       y = gini, 
       x = well,
-      fill = amendment,
-      color = amendment
+      fill = well,
+      color = well
     )
   ) +
-  geom_point(position = position_dodge(width = 0.3)) +
-  geom_path(position = position_dodge(width = 0.3)) +
-  scale_color_manual(values = amendment_palette) +
+  geom_boxplot(fill = NA) +
+  scale_color_manual(values = well_palette) +
+  scale_fill_manual(values = well_palette) +
   theme_om23() +
   labs(
     x = "", y = "Gini Coefficient",
