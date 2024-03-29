@@ -27,6 +27,7 @@ library(ggdist)    # CRAN v3.2.0
 library(ggforce)   # CRAN v0.4.1
 library(isotopia)  # [github::isoverse/isotopia] v0.5.8
 library(scales)    # CRAN v1.2.1
+library(gt)
 
 source("source/calculate_mu.R")
 source("source/calculate_sigma_mu.R")
@@ -197,23 +198,7 @@ amendments |> knitr::kable()
 
 We must account for isotopic dilution of the tracer from carbon pools native to the sample.
 
-Before our work with EMSL, we used the following estimates of OA concentrations from previous studies nearby wells, taking the mean values.
-
-|  Well  | Formate (µM) | Acetate (µM) |
-|:------:|:------------:|:------------:|
-| NSHQ04 |     2.33     |     1.37     |
-| NSHQ14 |     1.73     |     1.25     |
-| WAB71  |     1.52     |    0.631     |
-
-```{r}
-formate_estimate.um <- mean(2.33, 1.73, 1.52)
-acetate_estimate.um <- mean(1.37, 1.25, 0.631)
-
-paste0("Formate: ", formate_estimate.um, "uM")
-paste0("Acetate: ", acetate_estimate.um, "uM")
-```
-
-But we now have new data from PNNL EMSL's NMR facility:
+We now have new data from PNNL EMSL's NMR facility revealing the concentrations of acetate and formate:
 
 ```{r}
 voa_corrected_ctl |> 
@@ -226,9 +211,9 @@ voa_corrected_ctl |>
     ) |> 
   rename(Acetate_uM = Acetate,
          Formate_uM = Formate) |> 
-  gt::gt() |> 
-  gt::data_color(columns = Acetate_uM, palette = "Blues") |> 
-  gt::data_color(columns = Formate_uM, palette = "Greens")
+  gt() |> 
+  data_color(columns = Acetate_uM, palette = "Blues") |> 
+  data_color(columns = Formate_uM, palette = "Greens")
 ```
 
 ```{r}
@@ -261,8 +246,6 @@ DIC_slim <- DIC |>
     DIC.F13C.error = as.numeric(to_abundance(DIC.R13C.error))
   ) |> 
   select(-c(d13C.scale, d13C.error.S))
-
-
 ```
 
 ### Mass balance the effective label strength
@@ -282,20 +265,121 @@ $$
 F_\Sigma = \frac{m_xF_x + m_kF_k}{m_x + m_k}
 $$
 
-where k is the spike, and x is the natural abundance pool.
+where k is the spike, and x is the natural abundance pool. Here, $m$ refers to the moles of compound x and spike k, respectively. F refers to the frational abundance.
 
 ```{r}
-calculate_effective <- function(mx, mk, fx, fk) {
-  # mx and fx are natural abundance molarity and abundance
+mass_balance_13C <- function(x_uM, k_uM, x_F13C, k_F13C, x_L, k_L, option = "F13C") {
+  # mx and fx are natural abundance molarity (µM) and abundance
   # mk and fk are isotope spike molarity and abundance
-  effective_concentration = (mx*fx + mk*fk) / (mx + mk)
-  return(effective_concentration)
+  # vx and vk are volume of natural abundance and spike, respectively (Liters)
+  molarity_x = x_uM * 1e-6
+  molarity_k = k_uM * 1e-6
+  moles_x = molarity_x * x_L
+  moles_k = molarity_k * k_L
 }
 
-# Test the function:
-calculate_effective(mx = 50, mk = 50, fx = 1, fk = 0.5) # 0.75
-calculate_effective(mx = 1, mk = 50, fx = 0.01, fk = 0.9999) # 0.9804
-calculate_effective(mx = 2000, mk = 6000, fx = 0.01, fk = 0.9999) # 0.7524
+calculate_effective_F13C <- function(x_uM, k_uM, x_F13C, k_F13C, x_L, k_L) {
+  # mx and fx are natural abundance molarity (µM) and abundance
+  # mk and fk are isotope spike molarity and abundance
+  # vx and vk are volume of natural abundance and spike, respectively (Liters)
+  molarity_x = x_uM * 1e-6
+  molarity_k = k_uM * 1e-6
+  moles_x = molarity_x * x_L
+  moles_k = molarity_k * k_L
+  moles_total = moles_x + moles_k
+  vol_total = x_L + k_L
+  effective_F13C = (moles_x*x_F13C + moles_k*k_F13C) / moles_total
+  molarity_final = moles_total / vol_total
+  return(effective_F13C)
+}
+
+calculate_effective_molarity <- function(x_uM, k_uM, x_F13C, k_F13C, x_L, k_L) {
+  # mx and fx are natural abundance molarity (µM) and abundance
+  # mk and fk are isotope spike molarity and abundance
+  # vx and vk are volume of natural abundance and spike, respectively (Liters)
+  # option: return F13C or molarity?
+  molarity_x = x_uM * 1e-6
+  molarity_k = k_uM * 1e-6
+  moles_x = molarity_x * x_L
+  moles_k = molarity_k * k_L
+  moles_total = moles_x + moles_k
+  vol_total = x_L + k_L
+  effective_F13C = (moles_x*x_F13C + moles_k*k_F13C) / moles_total
+  molarity_final = moles_total / vol_total
+  uM_final = molarity_final * 1e6
+  return(uM_final)
+}
+
+calculate_moles_spike <- function(x_uM, k_uM, x_F13C, k_F13C, x_L, k_L) {
+  # mx and fx are natural abundance molarity (µM) and abundance
+  # mk and fk are isotope spike molarity and abundance
+  # vx and vk are volume of natural abundance and spike, respectively (Liters)
+  # option: return F13C or molarity?
+  molarity_x = x_uM * 1e-6
+  molarity_k = k_uM * 1e-6
+  moles_x = molarity_x * x_L
+  moles_k = molarity_k * k_L
+  moles_total = moles_x + moles_k
+  vol_total = x_L + k_L
+  effective_F13C = (moles_x*x_F13C + moles_k*k_F13C) / moles_total
+  molarity_final = moles_total / vol_total
+  uM_final = molarity_final * 1e6
+  return(moles_k)
+}
+
+calculate_moles_pre <- function(x_uM, k_uM, x_F13C, k_F13C, x_L, k_L) {
+  # mx and fx are natural abundance molarity (µM) and abundance
+  # mk and fk are isotope spike molarity and abundance
+  # vx and vk are volume of natural abundance and spike, respectively (Liters)
+  # option: return F13C or molarity?
+  molarity_x = x_uM * 1e-6
+  molarity_k = k_uM * 1e-6
+  moles_x = molarity_x * x_L
+  moles_k = molarity_k * k_L
+  moles_total = moles_x + moles_k
+  vol_total = x_L + k_L
+  effective_F13C = (moles_x*x_F13C + moles_k*k_F13C) / moles_total
+  molarity_final = moles_total / vol_total
+  uM_final = molarity_final * 1e6
+  return(moles_x)
+}
+
+calculate_moles_total <- function(x_uM, k_uM, x_F13C, k_F13C, x_L, k_L) {
+  # mx and fx are natural abundance molarity (µM) and abundance
+  # mk and fk are isotope spike molarity and abundance
+  # vx and vk are volume of natural abundance and spike, respectively (Liters)
+  # option: return F13C or molarity?
+  molarity_x = x_uM * 1e-6
+  molarity_k = k_uM * 1e-6
+  moles_x = molarity_x * x_L
+  moles_k = molarity_k * k_L
+  moles_total = moles_x + moles_k
+  vol_total = x_L + k_L
+  effective_F13C = (moles_x*x_F13C + moles_k*k_F13C) / moles_total
+  molarity_final = moles_total / vol_total
+  uM_final = molarity_final * 1e6
+  return(moles_total)
+}
+
+
+calculate_effective_F13C(
+  x_uM = 0.55, # BA3A-20 Formate µM
+  x_F13C = 0.01, # BA3A-20 Formate F13C (natabund)
+  x_L = 0.0495, # BA3A-20 volume (45.5mL)
+  k_uM = 50, # spike concnetration 50µM
+  k_F13C = 0.99, # spike F13C (99 at %)
+  k_L = 0.0005 # spike volume (0.5mL)
+)
+
+calculate_effective_molarity(
+  x_uM = 0.55, # BA3A-20 Formate µM
+  x_F13C = 0.01, # BA3A-20 Formate F13C (natabund)
+  x_L = 0.0495, # BA3A-20 volume (45.5mL)
+  k_uM = 50, # spike concnetration 50µM
+  k_F13C = 0.99, # spike F13C (99 at %)
+  k_L = 0.0005 # spike volume (0.5mL)
+)
+
 ```
 
 So let's apply this to our samples. We then calculate single-cell growth rate as per Caro et al. 2023, Kopf et al. 2015, etc.
@@ -356,23 +440,56 @@ growth_data <- roi_data |>
     )
   ) |> 
  mutate(
-    F13C.label = calculate_effective(
-      # define the concentration of natural abundance C source:
-      mx = case_when(
+  # define the concentration of natural abundance C source:
+  x_uM = case_when(
         amendment == "bicarbonate" ~ DIC_uM,
         amendment == "acetate" ~ voa_conc_uM,
         amendment == "formate" ~ voa_conc_uM
       ),
-      # define the F13C of natural abundance C source:
-      fx = case_when(
+  # define the F13C of natural abundance C source:
+  x_F13C = case_when(
         amendment == "bicarbonate" ~ DIC.F13C,
         amendment == "acetate" ~ voa_F13C,
         amendment == "formate" ~ voa_F13C
       ),
-      # molarity of the isotope spike:
-      mk = spike.uM,
-      fk = spike.F13C
-    )
+  # molarity of the isotope spike:
+      k_uM = case_when(
+        amendment == "formate" ~ 5000, # stock conc: 5000uM
+        amendment == "acetate" ~ 5000, # stock conc: 5000uM
+        amendment == "bicarbonate" & well == "BA1B" ~ 600000, # 600 mM
+        amendment == "bicarbonate" & well == "BA4A" ~ 100000, # 100 mM
+        amendment == "bicarbonate" & well == "BA3A" ~ 10000   # 10 mM
+      ),
+  k_F13C = 0.99, # spike was always 99 at. %
+  # volume of the sample and spike
+  x_L = 0.0495, # 0.0495 L = 49.5 mL
+  k_L = 0.0005,  # 0.0005 L = 0.5 mL
+  # mass balance:
+  F13C.label = calculate_effective_F13C(
+      x_uM = x_uM, x_F13C = x_F13C,
+      k_uM = k_uM, k_F13C = k_F13C,
+      x_L = x_L, k_L = k_L
+      ),
+  uM.label = calculate_effective_molarity(
+      x_uM = x_uM, x_F13C = x_F13C,
+      k_uM = k_uM, k_F13C = k_F13C,
+      x_L = x_L, k_L = k_L
+      ),
+  moles_pre = calculate_moles_pre(
+      x_uM = x_uM, x_F13C = x_F13C,
+      k_uM = k_uM, k_F13C = k_F13C,
+      x_L = x_L, k_L = k_L
+      ),
+  moles_spike = calculate_moles_spike(
+      x_uM = x_uM, x_F13C = x_F13C,
+      k_uM = k_uM, k_F13C = k_F13C,
+      x_L = x_L, k_L = k_L
+      ),
+  moles_total = calculate_moles_total(
+      x_uM = x_uM, x_F13C = x_F13C,
+      k_uM = k_uM, k_F13C = k_F13C,
+      x_L = x_L, k_L = k_L
+      )
   ) |> 
    # calculate apparent growth rate
    mutate(
@@ -404,15 +521,121 @@ growth_data <- roi_data |>
    )
 ```
 
-Let's inspect the effective label strengths of our incubations
+## Inspect effective label strengths
 
 ```{r}
 effective_label_summary <- growth_data |> 
+  filter(amendment != "negative control") |> 
   group_by(well, depth, amendment) |> 
-  select(well, depth, amendment, F13C.label) |> 
-  unique()
+  select(well, depth, amendment, DIC_uM, voa_conc_uM, F13C.label, uM.label,
+         moles_pre, moles_spike, moles_total) |> 
+  unique() |> 
+  ungroup() |> 
+  mutate(
+    carbon_source = amendment,
+    ambient_uM = case_when(
+      carbon_source == "bicarbonate" ~ DIC_uM,
+      carbon_source == "acetate" | carbon_source == "formate" ~ voa_conc_uM
+    ),
+    effective_uM = uM.label,
+    effective_at13C = F13C.label * 100,
+  ) |> 
+  select(well, depth, carbon_source, ambient_uM, effective_uM, 
+         effective_at13C, moles_pre, moles_spike, moles_total) |> 
+  pivot_wider(names_from = carbon_source, 
+              values_from = c(ambient_uM, effective_uM,effective_at13C,
+                              moles_pre, moles_spike, moles_total)) |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A")),
+         depth = factor(as.character(depth), 
+                        levels = c("20", "150", "250", "270"))) |>
+  arrange(well, depth)
 
-knitr::kable(effective_label_summary)
+
+# make a GT
+gt_label_summary <- effective_label_summary |> 
+  rename(
+    ambient_acetate = ambient_uM_acetate,
+    ambient_formate = ambient_uM_formate,
+    ambient_bicarbonate = ambient_uM_bicarbonate,
+    effective_acetate = effective_uM_acetate,
+    effective_bicarbonate = effective_uM_bicarbonate,
+    effective_formate = effective_uM_formate,
+    isotopic_label_acetate = effective_at13C_acetate,
+    isotopic_label_formate = effective_at13C_formate,
+    isotopic_label_bicarbonate = effective_at13C_bicarbonate
+  ) |> 
+  gt() |> 
+  data_color(
+    columns = c(isotopic_label_acetate, isotopic_label_formate,
+                isotopic_label_bicarbonate), 
+    palette = "Reds"
+    ) |> 
+  data_color(
+    columns = c(ambient_acetate, effective_acetate), 
+    palette = "Blues") |> 
+  data_color(
+    columns = c(ambient_formate, effective_formate), 
+    palette = "Purples") |> 
+  data_color(
+    columns = c(ambient_bicarbonate, effective_bicarbonate), 
+    palette = "Greens") |> 
+  cols_label(
+    depth = "Depth (mbs)",
+    ambient_acetate = "Pre-incubation (µM)",
+    ambient_formate = "Pre-incubation (µM)",
+    ambient_bicarbonate = "Pre-Incubation (µM)",
+    effective_acetate = "After {{^13}}C probe addition (µM)",
+    effective_formate = "After {{^13}}C probe addition (µM)",
+    effective_bicarbonate = "With {{^13}}C Tracer (µM)",
+    isotopic_label_acetate = "Effective isotopic label (at. %)",
+    isotopic_label_formate = "Effective isotopic label (at. %)",
+    isotopic_label_bicarbonate = "Effective isotopic label (at. %)"
+  ) |> 
+  tab_spanner(
+    columns = c(ambient_acetate, effective_acetate, isotopic_label_acetate),
+    label = "Acetate"
+  ) |> 
+  tab_spanner(
+    columns = c(ambient_bicarbonate, effective_bicarbonate,isotopic_label_bicarbonate),
+    label = "DIC"
+  ) |> 
+  tab_spanner(
+    columns = c(ambient_formate, effective_formate, isotopic_label_formate),
+    label = "Formate"
+  ) |> 
+  fmt_percent(
+    columns = c(isotopic_label_acetate, isotopic_label_formate, 
+                isotopic_label_bicarbonate), 
+    scale_values = FALSE) |> 
+  fmt_number(
+    columns = c(ambient_acetate, ambient_formate, ambient_bicarbonate,
+                effective_acetate, effective_formate, effective_bicarbonate),
+    decimals = 2
+      ) |> 
+  fmt_percent(columns = c(isotopic_label_acetate, isotopic_label_formate,
+                          isotopic_label_bicarbonate),
+              decimals = 1, scale_values = FALSE) |> 
+  cols_align(align = "center") |> 
+    tab_row_group(rows = well == "BA3A", label = "BA3A") |> 
+  tab_row_group(rows = well == "BA4A", label = "BA4A") |> 
+  tab_row_group(rows = well == "BA1B", label = "BA1B") |> 
+  cols_hide(columns = c(well, moles_pre_acetate, moles_pre_bicarbonate,
+                        moles_pre_formate, moles_spike_acetate, moles_spike_formate,
+                        moles_spike_bicarbonate, moles_total_acetate, 
+                        moles_total_bicarbonate, moles_total_formate, 
+                        moles_total_acetate)) |> 
+  tab_style(style = cell_borders(color = "black", sides = c("top"), weight = px(3)),
+          locations = cells_row_groups(groups = c("BA1B","BA4A", "BA3A"))) |> 
+  tab_header(
+    title = "Isotopic labeling conditions",
+    subtitle = "Concentrations and isotopic compositions of stable isotope probes"
+  )
+gt_label_summary
+
+
+effective_label_summary |> writexl::write_xlsx(path = "data_output/effective_label_concentrations.xlsx")
+
+gt_label_summary |> gtsave(filename = "data_output/effective_label_concentrations.html")
 ```
 
 ### Plot raw 13F trends with effective label
@@ -484,12 +707,12 @@ p_13F <- growth_data |>
   
 p_13F
 
-cowplot::save_plot(plot = p_13F, filename = "fig_output/p13F.pdf", base_height = 8, base_width = 12)
+# cowplot::save_plot(plot = p_13F, filename = "fig_output/p13F.pdf", base_height = 8, base_width = 12)
 
 p_13F_zoom <- p_13F %+% coord_cartesian(xlim = c(0, 0.1))
 p_13F_zoom
 
-cowplot::save_plot(plot = p_13F_zoom, filename = "fig_output/p13F_zoom.pdf", base_height = 8, base_width = 12)
+# cowplot::save_plot(plot = p_13F_zoom, filename = "fig_output/p13F_zoom.pdf", base_height = 8, base_width = 12)
 ```
 
 ### Plot Growth Rates
@@ -850,7 +1073,7 @@ growth_data_summary |>
       depth_str == "270m" ~ "Deep (250 / 270m)"
     )) |>
   mutate(depth_str = factor(depth_str, levels = c("Shallow (20m)", "Medium (150m)", "Deep (250 / 270m)"))) |> 
-  gt::gt(rowname_col = "well", groupname_col = "depth_str")
+  gt(rowname_col = "well", groupname_col = "depth_str")
     
 
 ```
@@ -1377,20 +1600,21 @@ assim_data_fmol_summary <- assim_data |>
 
 gt_assim_data_fmol_summary <- assim_data_fmol_summary |> 
   select(-c(well, depth)) |> 
-  gt::gt(rowname_col = "site") |> 
-  gt::tab_header(title = "Mean Cell-Specific Carbon Assimilation Rates") |> 
-  gt::tab_footnote(footnote = "All values reported in cell-specific fmol C per day.",
-                   locations = gt::cells_column_labels(
+  gt(rowname_col = "site") |> 
+  tab_header(title = "Mean Cell-Specific Carbon Assimilation Rates") |> 
+  tab_footnote(footnote = "All values reported in cell-specific fmol C per day.",
+                   locations = cells_column_labels(
                      columns = c(acetate, bicarbonate, formate))) |> 
-  gt::tab_row_group(label = "BA3A", rows = c("BA3A-20m", "BA3A-150m", "BA3A-270m")) |> 
-  gt::tab_row_group(label = "BA4A", rows = c("BA4A-20m", "BA4A-150m", "BA4A-270m")) |> 
-  gt::tab_row_group(label = "BA1B", rows = c("BA1B-20m", "BA1B-150m", "BA1B-250m")) |> 
-  gt::tab_spanner(columns = everything(), label = "Amendment") |> 
-  gt::fmt_scientific(columns = c(acetate, bicarbonate, formate)) |> 
-  gt::data_color(columns = c(acetate, bicarbonate, formate), palette = "Blues")
+  tab_row_group(label = "BA3A", rows = c("BA3A-20m", "BA3A-150m", "BA3A-270m")) |> 
+  tab_row_group(label = "BA4A", rows = c("BA4A-20m", "BA4A-150m", "BA4A-270m")) |> 
+  tab_row_group(label = "BA1B", rows = c("BA1B-20m", "BA1B-150m", "BA1B-250m")) |> 
+  tab_spanner(columns = everything(), label = "Amendment") |> 
+  fmt_scientific(columns = c(acetate, bicarbonate, formate)) |> 
+  data_color(columns = c(acetate, bicarbonate, formate), palette = "Blues")
+gt_assim_data_fmol_summary
 
 # Export as .xlsx and gt
-gt::gtsave(gt_assim_data_fmol_summary, filename = "data_output/mean_cscar.html")
+gtsave(gt_assim_data_fmol_summary, filename = "data_output/mean_cscar.html")
 writexl::write_xlsx(assim_data_fmol_summary, path = "data_output/mean_cscar.xlsx")
 
 ```
@@ -1415,21 +1639,6 @@ fraction_active_summary <- assim_data |> mutate(
   mutate(fraction_active = sumQ / total)
 
   
-  fraction_active_summary |> 
-    ungroup() |> 
-    filter(amendment != "negative control") |> 
-    ggplot() +
-    aes(
-      x = amendment,
-      y = fraction_active,
-    ) +
-    geom_point() +
-    geom_segment(aes(xend = amendment), yend = 0) +
-    scale_y_continuous(labels = label_percent()) +
-    coord_polar() +
-    facet_wrap(vars(depth, well)) +
-    theme_bw()
-  
   gt_fraction_active_summary <- fraction_active_summary |> 
     select(well, depth, fraction_active, amendment) |> 
     mutate(depth = case_when(
@@ -1441,22 +1650,22 @@ fraction_active_summary <- assim_data |> mutate(
     filter(amendment != "negative control") |> 
     pivot_wider(values_from = fraction_active, names_from = well) |> 
     select(amendment, depth, BA1B, BA4A, BA3A) |> 
-    gt::gt(rowname_col = "amendment", groupname_col = "depth") |> 
-    gt::tab_header(title = "Fraction of Active Cells") |>
-    gt::tab_footnote(
+    gt(rowname_col = "amendment", groupname_col = "depth") |> 
+    tab_header(title = "Fraction of Active Cells") |>
+    tab_footnote(
     footnote = "Where 'active' is defined as isotopic enrichment exceeding 3 standard deviations from the mean of the negative control.",
-    locations = gt::cells_title()
+    locations = cells_title()
   ) |> 
-    gt::data_color(columns = BA1B, palette = "Reds") |> 
-    gt::data_color(columns = BA4A, palette = "Blues") |> 
-    gt::data_color(columns = BA3A, palette = "Greens") |> 
-    gt::fmt_percent(columns = c(BA1B, BA4A, BA3A)) |> 
-    gt::cols_align(align = "center")
+    data_color(columns = BA1B, palette = "Reds") |> 
+    data_color(columns = BA4A, palette = "Blues") |> 
+    data_color(columns = BA3A, palette = "Greens") |> 
+    fmt_percent(columns = c(BA1B, BA4A, BA3A)) |> 
+    cols_align(align = "center")
 gt_fraction_active_summary
 
 # save as .xlsx and gt
 writexl::write_xlsx(fraction_active_summary, "data_output/fraction_active.xlsx")
-gt::gtsave(gt_fraction_active_summary, filename = "data_output/fraction_active.html")
+gtsave(gt_fraction_active_summary, filename = "data_output/fraction_active.html")
   
 ```
 
