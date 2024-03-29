@@ -320,19 +320,22 @@ p_fe <- icp.complete |>
     )
   ) +
   geom_point(size = 3) +
+  geom_vline(xintercept = 0.0004, color = "red") +
   geom_path(linewidth = 1.5) +
   scale_y_reverse(breaks = c(0, 20, 150, 250, 270)) +
+  scale_x_log10() +
   scale_color_manual(values = well_palette) +
-  coord_cartesian(xlim = c(0, 0.6), ylim = c(270, 0)) +
+  #coord_cartesian(xlim = c(0, 0.6), ylim = c(270, 0)) +
+  annotation_logticks(sides = "b") +
   labs(
     y = "Depth (mbs)",
     x = "Concentration (mg/L)",
-    fill = "",
+    #fill = "",
     title = latex2exp::TeX("Total Iron $(Fe_T)$")
   ) +
-  ggprism::theme_prism() +
+  theme_bw() +
   theme(
-    legend.position = "None",
+    legend.position = "bottom",
     aspect.ratio = 1
   )
 p_fe
