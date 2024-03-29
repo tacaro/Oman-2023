@@ -1,0 +1,644 @@
+---
+title: "17 OM23 Picarro Data"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+## Setup
+
+Load required libraries
+
+```{r}
+library(tidyverse) # Easily Install and Load the 'Tidyverse', CRAN v2.0.0
+library(isoCRDS) # Read and Analyze Cavity Ring Down Spectroscopy (CRDS) Data, [github::KopfLab/isoCRDS] v0.1.0
+library(lubridate) # Make Dealing with Dates a Little Easier, CRAN v1.9.3
+source("source/theme_om23.R")
+source("source/color_palettes.R")
+library(gt)
+
+
+delta_to_at13C <- function(d13C) {
+  # in permil!
+  R13C = ((d13C/1000)+1) * 0.011180
+  F13C = R13C / (1 + R13C)
+  at13C = F13C*100
+  return(at13C)
+}
+```
+
+Load the data if a cache does not exist
+
+```{r}
+# Does a cached version of the picarro data exist?
+cache_exists = file.exists("cache/om23_picarro_mapped.rds")
+
+# Make a conditional statement so I don't have to read in the raw data every time I run the script.
+if (!cache_exists) {
+  # if there's no cache, read in the CRDS data and concat it together
+  crds_data <- bind_rows(
+  iso_read_many_crds(directory = "data/Picarro/raw_data/18/"),
+  iso_read_many_crds(directory = "data/Picarro/raw_data/19/"),
+  iso_read_many_crds(directory = "data/Picarro/raw_data/20/")
+  ) |>
+  as_tibble() |> 
+  # fix the timezone and add an hour for daylight savings
+  mutate(datetime = with_tz(datetime, "MST"),
+         datetime = datetime + hours(1))
+
+crds_data |> pull(datetime) |> tz() # check the TZ?
+
+# Inspect the data:
+crds_data |> 
+  ggplot(
+    aes(
+      x = datetime,
+      y = HR_12CH4
+      )
+  ) +
+  geom_line() +
+  theme_minimal()
+
+} else {
+  # save to cache
+  crds_data_mapped <- read_rds("cache/om23_picarro_mapped.rds")
+}
+
+```
+
+## Import and make our sample map
+
+```{r}
+
+if (!cache_exists) {
+  sample_map <- readxl::read_excel("data/Picarro/OM23_Picarro_Data.xlsx", sheet = 1) |> 
+  as_tibble() |> 
+  mutate(
+    # coerce into datetime format:
+    datetime_start = ymd_hms(paste0(yyyy, "-", mm, "-", dd, " ", `hh:mm:ss`)),
+    # create end datetime using duration column:
+    datetime_end = datetime_start + minutes(duration)
+  ) |> 
+  # fix the timezones:
+  mutate(
+    datetime_start = force_tz(datetime_start, "MST"),
+    datetime_end = force_tz(datetime_end, "MST")
+  ) |> 
+  # remove samples with ignore marker (bad injections!)
+  filter(ignore == FALSE) |> 
+  select(datetime_start, datetime_end, everything(), -ignore) 
+}
+  
+```
+
+## Map the sample
+
+```{r}
+if (!cache_exists) {
+  # map the sample_ids to the picarro data
+  crds_data_mapped <- iso_map_crds(crds_data = crds_data, sample_map = sample_map)  
+}
+
+```
+
+Inspect the map
+
+```{r}
+crds_data_mapped |> 
+  mutate(is_mapped = if_else(is.na(sample_id), true = FALSE, false = TRUE)) |> 
+  mutate(nreading = row_number()) |> 
+  ggplot(
+    aes(
+      x = datetime,
+      y = HR_Delta_iCH4_Raw,
+      color = is_mapped,
+      group = "identity"
+    )
+  ) +
+  geom_line() +
+  scale_y_log10() +
+  scale_x_datetime(
+    limits = c(as.POSIXct("2024-03-19 09:00:00", tz = "MST"),
+               as.POSIXct("2024-03-19 18:00:00", tz = "MST"))
+  ) +
+  theme_bw()
+
+crds_data_mapped |> 
+  mutate(is_mapped = if_else(is.na(sample_id), true = FALSE, false = TRUE)) |> 
+  mutate(nreading = row_number()) |> 
+  ggplot(
+    aes(
+      x = datetime,
+      y = HR_Delta_iCH4_Raw,
+      color = is_mapped,
+      group = "identity"
+    )
+  ) +
+  geom_line() +
+  scale_y_log10() +
+  scale_x_datetime(
+    limits = c(as.POSIXct("2024-03-18 09:00:00", tz = "MST"),
+               as.POSIXct("2024-03-18 18:00:00", tz = "MST"))
+  ) +
+  theme_bw()
+
+crds_data_mapped |> 
+  mutate(is_mapped = if_else(is.na(sample_id), true = FALSE, false = TRUE)) |> 
+  mutate(nreading = row_number()) |> 
+  ggplot(
+    aes(
+      x = datetime,
+      y = HR_Delta_iCH4_Raw,
+      color = is_mapped,
+      group = "identity"
+    )
+  ) +
+  geom_line() +
+  scale_y_log10() +
+  scale_x_datetime(
+    limits = c(as.POSIXct("2024-03-20 09:00:00", tz = "MST"),
+               as.POSIXct("2024-03-20 13:00:00", tz = "MST"))
+  ) +
+  theme_bw()
+```
+
+Mapping looks successful - saving to cache
+
+```{r}
+crds_data_mapped |> write_rds(file = "cache/om23_picarro_mapped.rds")
+```
+
+## Summarize
+
+```{r}
+
+
+# Define multiple summary functions:
+mean_sd <- list(
+  mean = ~mean(.x, na.rm = TRUE),
+  sd = ~sd(.x, na.rm = TRUE)
+)
+
+crds_summary <- crds_data_mapped |> 
+  group_by(sample_id) |> 
+  summarize(across(where(is.numeric), mean_sd)) |> 
+  ungroup() |> 
+  select(sample_id, 
+         HR_12CH4_mean, HR_13CH4_mean, HR_Delta_iCH4_Raw_mean,
+         HR_12CH4_sd, HR_13CH4_sd, HR_Delta_iCH4_Raw_sd
+         ) |> 
+  mutate(
+    # Means:
+    HR_R13_CH4_mean = ((HR_Delta_iCH4_Raw_mean / 1000) + 1) * 0.011180,
+    HR_F13_CH4_mean = (HR_R13_CH4_mean)/(1 + HR_R13_CH4_mean),
+    HR_at13_CH4_mean = HR_F13_CH4_mean * 100,
+    # SDs:
+    HR_R13_CH4_sd = ((HR_Delta_iCH4_Raw_sd / 1000) + 1) * 0.011180,
+    HR_F13_CH4_sd = (HR_R13_CH4_sd)/(1 + HR_R13_CH4_sd),
+    HR_at13_CH4_sd = HR_F13_CH4_sd * 100,
+  ) |> 
+  # add metadata
+  mutate(
+    well = case_when(
+      str_detect(sample_id, "BA1B") ~ "BA1B",
+      str_detect(sample_id, "BA4A") ~ "BA4A",
+      str_detect(sample_id, "BA3A") ~ "BA3A",
+    ),
+    well = factor(well, levels = c("BA1B", "BA4A", "BA3A")),
+    depth = case_when(
+      str_detect(sample_id, "20") ~ 20,
+      str_detect(sample_id, "150") ~ 150,
+      str_detect(sample_id, "250") ~ 250,
+      str_detect(sample_id, "270") ~ 270,
+    ),
+    depth_str = case_when(
+      depth == 20 ~ "Shallow (20m)",
+      depth == 150 ~ "Intermediate (150m)",
+      depth == 250 ~ "Deep (250/270m)",
+      depth == 270 ~ "Deep (250/270m)"
+    ),
+    depth_str = factor(depth_str, levels = c("Shallow (20m)","Intermediate (150m)",
+                                             "Deep (250/270m)")),
+    amendment = case_when(
+      str_detect(sample_id, "BIC") ~ "bicarbonate",
+      str_detect(sample_id, "AC") ~ "acetate",
+      str_detect(sample_id, "FORM") ~ "formate",
+    )
+  )
+
+```
+
+## Plot it
+
+```{r}
+p_om23_crds <- crds_summary |> 
+  filter(!is.na(sample_id)) |> 
+  ggplot(
+    aes(
+      x = well,
+      y = HR_at13_CH4_mean ,
+      fill = HR_at13_CH4_mean
+    )
+  ) +
+  geom_pointrange(
+    shape = 21,
+    color = "black",
+    aes(
+      ymin = HR_at13_CH4_mean - HR_at13_CH4_sd,
+      ymax = HR_at13_CH4_mean + HR_at13_CH4_sd
+    )
+  ) +
+  scale_fill_viridis_c() +
+  facet_grid(depth_str~amendment) +
+  scale_y_log10() +
+  coord_cartesian(ylim = c(0.7, 110)) +
+  annotation_logticks(sides = "l") +
+  theme_om23() +
+  labs(
+    x = "",
+    y = latex2exp::TeX("$^{13}C$ (at. %)"),
+    color = latex2exp::TeX("$^{13}C$ (at. %)"),
+  ) +
+  theme(
+    panel.grid = element_blank(),
+    panel.grid.major.y = element_line(color = "gray"),
+    legend.position = "bottom",
+    axis.text.x = element_text(hjust = 0.5),
+    axis.ticks = element_blank(),
+    aspect.ratio = 1
+  )
+
+p_om23_crds
+
+
+
+cowplot::save_plot(
+  filename = "fig_output/crds_prelim.pdf",
+  plot = p_om23_crds,
+  base_height = 8,
+  base_width = 8
+)
+```
+
+# Preference calculations
+
+The goal here is to see what percentage of the methane is sourced from a 13C-probe as opposed to endogenous 12C in the system. The difference in $^{13}F$ between the methane and the isotopic label tells us how much methane was produced from probe and non-probe sources. Methane produced from non-probe carbon sources (i.e., carbon sources endogenous to the site fluid) is accounted for as the difference in isotopic composition between the label ($^{13}F_{label}$) and the produced methane ($^{13}F_{CH_4}$).
+
+$$
+\begin{aligned}
+\text{Methane from 13C-Probe} &= \: \frac{^{13}F_{CH_{4}}}{^{13}F_{label}} \times 100 \% \\
+\\
+\text{Methane from non-probe carbon sources} &= \frac{^{13}F_{label} - ^{13}F_{CH_{4}}}{^{13}F_{label}} \times 100 \%
+\end{aligned}
+$$
+
+First, let's import the effective label strengths that we calculated using isotopic mass balance in script `03_nanoSIMS_processing.qmd`.
+
+```{r}
+labels <- readxl::read_excel("data_output/effective_label_concentrations.xlsx") |> 
+  select(well, depth, effective_at13C_formate, effective_at13C_bicarbonate, effective_at13C_acetate) |> 
+  pivot_longer(-c(well, depth), values_to = "at13C", names_to = "amendment") |> 
+  mutate(amendment = str_remove(amendment, "effective_at13C_")) |> 
+  rename(at13C_label = at13C) |> 
+  mutate(depth = as.numeric(depth))
+  
+```
+
+Join this data with our CRDS dataset
+
+```{r}
+crds_w_fl <- crds_summary |> 
+  filter(!is.na(sample_id)) |> 
+  left_join(labels, by = join_by(well,depth, amendment)) |> 
+  select(-sample_id) |>
+  select(well, depth, amendment, everything()) |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A")))
+```
+
+## Plot with label strength
+
+```{r}
+p_om23_crds_fl <- crds_w_fl |> 
+  ggplot(
+    aes(
+      x = amendment,
+      y = HR_at13_CH4_mean ,
+      fill = HR_at13_CH4_mean
+    )
+  ) +
+  geom_pointrange(
+    shape = 21,
+    color = "black",
+    aes(
+      ymin = HR_at13_CH4_mean - HR_at13_CH4_sd,
+      ymax = HR_at13_CH4_mean + HR_at13_CH4_sd
+    )
+  ) +
+  geom_point(
+    aes(
+      y = at13C_label,
+    ),
+    color = "red",
+    shape = 95,
+    size = 5
+  ) +
+  scale_fill_viridis_c() +
+  facet_grid(depth_str~well) +
+  scale_y_log10() +
+  coord_cartesian(ylim = c(0.7, 110)) +
+  annotation_logticks(sides = "l") +
+  theme_om23() +
+  labs(
+    x = "",
+    y = latex2exp::TeX("$^{13}C$ (at. %)"),
+    color = latex2exp::TeX("$^{13}C$ (at. %)"),
+  ) +
+  theme(
+    panel.grid = element_blank(),
+    panel.grid.major.y = element_line(color = "gray", linetype = "dotted"),
+    legend.position = "bottom",
+    axis.text.x = element_text(hjust = 1, angle = 45),
+    axis.ticks = element_blank(),
+    aspect.ratio = 1
+  )
+
+p_om23_crds_fl
+```
+
+## Plot relative error
+
+```{r}
+p_error <- crds_w_fl |> 
+  ggplot(
+    aes(
+      x = HR_at13_CH4_mean,
+      y = HR_at13_CH4_sd
+    )
+  ) +
+  geom_point() +
+  scale_x_log10() +
+  annotation_logticks(sides = "b") +
+  labs(
+    x = latex2exp::TeX("Mean $^{13}C$ (at. %)"),
+    y = latex2exp::TeX("SD $^{13}C$ (at. %)")
+  ) +
+  theme_bw() +
+  theme(aspect.ratio = 1,
+        plot.margin = margin(0.25,0.25,0.25,0.25, "cm")
+        )
+p_error
+
+p_relerror <- crds_w_fl |> 
+  mutate(
+    relative_error = HR_at13_CH4_sd / HR_at13_CH4_mean
+  ) |> 
+    ggplot(
+    aes(
+      x = HR_at13_CH4_mean,
+      y = relative_error * 100
+    )
+  ) +
+  geom_point() +
+  scale_x_log10() +
+  annotation_logticks(sides = "b") +
+  labs(
+    x = latex2exp::TeX("Mean $^{13}C$ (at. %)"),
+    y = "Relative Error (%)"
+  ) +
+  theme_bw() +
+  theme(aspect.ratio = 1,
+        plot.margin = margin(0.25,0.25,0.25,0.25, "cm")
+        )
+p_relerror
+
+p_all_error <- cowplot::plot_grid(p_error, p_relerror, rel_widths = c(0.5, 0.5))
+
+cowplot::save_plot(
+  plot = p_all_error, filename = "fig_output/picarro_error.pdf",
+  base_height = 5, base_width = 8
+)
+```
+
+## Calculate differences in F13CH4
+
+### Plot
+
+```{r}
+crds_diff <- crds_w_fl |> 
+  mutate(
+    percent_ch4_from_label = (HR_at13_CH4_mean / at13C_label) * 100) |> 
+  mutate(
+    percent_ch4_from_label = case_when(
+      percent_ch4_from_label > 100 ~ 100,
+      TRUE ~ percent_ch4_from_label
+      )) |> 
+  mutate(
+    percent_ch4_from_other = ((at13C_label - HR_at13_CH4_mean) / at13C_label) * 100
+    ) |> 
+  mutate(
+    percent_ch4_from_other = case_when(
+      percent_ch4_from_other < 0 ~ 0,
+      TRUE ~ percent_ch4_from_other
+    )
+    )
+
+p_crds_diff <- crds_diff |> 
+  ggplot() +
+  geom_text(
+    aes(
+      x = amendment,
+      y = percent_ch4_from_label,
+      label = paste(round(percent_ch4_from_label, 1), "%")),
+    nudge_y = 0.2
+  ) +
+  geom_segment(
+    aes(
+      x = amendment,
+      y = 0.01, yend = percent_ch4_from_label
+    ), color = "black"
+  ) +
+  geom_point(
+    aes(
+      x = amendment,
+      y = percent_ch4_from_label
+    ),
+    color = "black",
+    fill = "red",
+    shape = 21,
+    size = 2
+  ) +
+  coord_cartesian(ylim = c(1, 150)) +
+  facet_grid(depth_str~well) +
+  labs(
+    x = "",
+    y = "",
+    title = "Fraction of methane derived from specific Carbon source"
+  ) +
+  scale_y_log10(labels = scales::label_percent(scale = 1)) +
+  annotation_logticks(sides = "l") +
+  theme_om23() +
+  theme(
+    panel.grid = element_blank(),
+    panel.grid.major.y = element_line(color = "gray", linetype = "dotted"),
+    axis.ticks.x = element_blank(),
+    aspect.ratio = 1,
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+p_crds_diff
+```
+
+```{r}
+p_crds_diff2 <- crds_diff |> 
+  pivot_longer(
+    cols = c(percent_ch4_from_label, percent_ch4_from_other),
+    values_to = "fraction", names_to = "type"
+  ) |> 
+  mutate(
+    type = case_when(type == "percent_ch4_from_label" ~ "13C Tracer",
+                     type == "percent_ch4_from_other" ~ "Other"),
+    source = case_when(
+      type == "13C Tracer" & amendment == "bicarbonate" ~ "13C-bicarbonate",
+      type == "13C Tracer" & amendment == "formate" ~ "13C-formate",
+      type == "13C Tracer" & amendment == "acetate" ~ "13C-acetate",
+      type == "Other" ~ "12C-Other"
+      ),
+    source = factor(source, levels = c("12C-Other", "13C-bicarbonate", "13C-formate", "13C-acetate"))
+  ) |> 
+  mutate(
+    depth_amendment = paste(amendment, depth_str)
+  ) |> 
+  ggplot() +
+  aes(
+    x = depth_str,
+    y = fraction,
+    fill = source
+  ) +
+  geom_col(width = 0.5) +
+  ggh4x::facet_nested(~ well + amendment) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+  scale_fill_manual(values = c( "gray", "#ff9100" , "#ff0077", "#9c0000")) +
+  coord_cartesian(ylim = c(1, 100), expand = FALSE) +
+  labs(
+    x = "",
+    y = "",
+    fill = "Methane source"
+  ) +
+  theme_bw() +
+  theme(
+    strip.text = element_text(color = "black", face = "bold", size = 10),
+    #strip.background = element_rect(fill = "black", color = "black"),
+    panel.grid = element_blank(),
+    axis.text = element_text(color = "black"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.background = element_blank(),
+    ggh4x.facet.nestline = element_line(colour = "black")
+  )
+
+p_crds_diff2
+
+cowplot::save_plot(plot = p_crds_diff2, filename = "fig_output/frac_13CH4.pdf",
+                   base_height = 4, base_width = 10)
+```
+
+### Summary table
+
+```{r}
+crds_diff |> 
+  select(well, depth, amendment, percent_ch4_from_label, percent_ch4_from_other) |> 
+  rename(`CH4 From 13C-Probe` = percent_ch4_from_label,
+         `CH4 From Other` = percent_ch4_from_other,
+         `13C-Probe` = amendment) |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
+  arrange(well, depth) |> 
+  gt() |> 
+  cols_hide(well) |> 
+  cols_units(`CH4 From Other` = "%",
+             `CH4 From 13C-Probe` = "%",
+             depth = "mbs") |> 
+  fmt_percent(columns = c(`CH4 From Other`, `CH4 From 13C-Probe`),
+              scale_values = FALSE, decimals = 1) |> 
+  data_color(columns = `CH4 From Other`, palette = "Blues") |>
+  data_color(columns = `CH4 From 13C-Probe`, palette = "Reds") |>
+  tab_row_group(rows = well == "BA3A", label = "BA3A") |> 
+  tab_row_group(rows = well == "BA4A", label = "BA4A") |> 
+  tab_row_group(rows = well == "BA1B", label = "BA1B") |> 
+  tab_style(style = list(cell_fill(color = "#da3b26"),
+                         cell_text(color = "white")),
+            locations = cells_row_groups(groups = "BA1B")) |> 
+  tab_style(style = list(cell_fill(color = "#479ff8"), 
+                         cell_text(color = "white")),
+            locations = cells_row_groups(groups = "BA4A")) |> 
+  tab_style(style = list(cell_fill(color = "#004d01"), 
+                         cell_text(color = "white")),
+            locations = cells_row_groups(groups = "BA3A"))
+```
+
+# Mole production from probe calcs
+
+```{r}
+production_rates <- readxl::read_excel(path = "data_output/ch4_production.xlsx")
+
+crds_moles <- crds_diff |> 
+  left_join(
+    production_rates,
+    by = c("well", "depth", "amendment")
+  ) |> 
+  mutate(
+    umol_total_SIP = umol_total * (percent_ch4_from_label / 100),
+    umol_total_SIP.upper = umol_total.upper * (percent_ch4_from_label / 100),
+    umol_total_SIP.lower = umol_total.lower * (percent_ch4_from_label / 100),
+    umol_per_day_SIP = umol_total_SIP / as.numeric(dt),
+    umol_per_day_SIP.upper = umol_total_SIP.upper / as.numeric(dt),
+    umol_per_day_SIP.lower = umol_total_SIP.lower / as.numeric(dt)
+  )
+
+gt_crds_moles <- crds_moles |> 
+  select(well, depth, amendment, percent_ch4_from_label, 
+         umol_total, umol_total_SIP, umol_per_day, umol_per_day_SIP) |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
+  arrange(well, amendment, depth) |> 
+  gt() |> 
+  cols_hide(well) |> 
+  cols_label(
+    depth = "depth (mbs)",
+    amendment = "Carbon Source",
+    #percent_ch4_from_other = "Fraction of {{CH_4}} from other sources (%)",
+    percent_ch4_from_label = "Fraction {{CH_4}} from C source (%)",
+    umol_total = "Total {{CH_4}}",
+    umol_total_SIP = "Source-specific {{CH_4}}",
+    umol_per_day = "Total {{CH_4}}",
+    umol_per_day_SIP = "Source-specific {{CH_4}}"
+  ) |> 
+  tab_spanner(
+    label = "{{CH_4}} Production (µmol)",
+    columns = c(umol_total, umol_total_SIP)
+  ) |> 
+  tab_spanner(
+    label = "{{CH_4}} Production Rate (µmol / day)",
+    columns = c(umol_per_day, umol_per_day_SIP)
+  ) |> 
+  tab_spanner(
+    label = "Carbon Preference",
+    columns = c(percent_ch4_from_label)
+  ) |> 
+  fmt_percent(columns = c(percent_ch4_from_label),
+              scale_values = FALSE, decimals = 1) |> 
+  fmt_number(columns = c(umol_total, umol_total_SIP, umol_per_day, umol_per_day_SIP)
+             ,decimals = 1) |> 
+  data_color(columns = percent_ch4_from_label, palette = "Reds") |>
+  tab_row_group(rows = well == "BA3A", label = "BA3A") |> 
+  tab_row_group(rows = well == "BA4A", label = "BA4A") |> 
+  tab_row_group(rows = well == "BA1B", label = "BA1B") |> 
+    tab_style(style = list(cell_fill(color = "#da3b26"),
+                         cell_text(color = "white")),
+            locations = cells_row_groups(groups = "BA1B")) |> 
+  tab_style(style = list(cell_fill(color = "#479ff8"), 
+                         cell_text(color = "white")),
+            locations = cells_row_groups(groups = "BA4A")) |> 
+  tab_style(style = list(cell_fill(color = "#004d01"), 
+                         cell_text(color = "white")),
+            locations = cells_row_groups(groups = "BA3A"))
+
+gt_crds_moles |> gt::gtsave(filename = "data_output/ch4_preference.html")
+```
