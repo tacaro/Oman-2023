@@ -448,6 +448,16 @@ gc_henry <- gc_samples_calc_wt0 |>
     nmol_total = nmol_aqueous + nmol_headspace,
     nmol_total.upper = nmol_aqueous.upper + nmol_headspace.upper,
     nmol_total.lower = nmol_aqueous.lower + nmol_headspace.lower
+  ) |>
+  mutate(
+    umol_total = nmol_total / 1000,
+    umol_total.upper = nmol_total.upper / 1000,
+    umol_total.lower = nmol_total.lower / 1000
+  ) |> 
+  mutate(
+    umol_total_per_ml = umol_total / 50,
+    umol_total_per_ml.upper = umol_total.upper / 50,
+    umol_total_per_ml.lower = umol_total.lower / 50
   )
 ```
 
@@ -501,11 +511,6 @@ cowplot::save_plot(
 
 ```{r}
 p_total_CH4 <- gc_henry |> 
-  mutate(
-    umol_total = nmol_total / 1000,
-    umol_total.upper = nmol_total.upper / 1000,
-    umol_total.lower = nmol_total.lower / 1000
-  ) |> 
   ggplot(
     aes(x = dt,
         y = umol_total,
@@ -545,15 +550,68 @@ cowplot::save_plot(
 )
 ```
 
+Make the same plot but normalize to fluid volume (50mL)
+
+```{r}
+p_total_CH4_per_ml <- gc_henry |> 
+  ggplot(
+    aes(x = dt,
+        y = umol_total_per_ml,
+        color = amendment,
+        fill = amendment,
+        shape = amendment,
+        label = file_name
+        )
+  ) +
+  geom_line(linewidth = 0.5, color = "gray") +
+  geom_pointrange(
+    aes(ymin = umol_total_per_ml.lower, ymax = umol_total_per_ml.upper),
+    color = "black", stroke = 1
+    ) +
+  facet_grid(depth_str~well) +
+  scale_color_manual(values = amendment_palette) +
+  scale_fill_manual(values = amendment_palette) +
+  scale_shape_manual(values = c(21, 22, 23)) +
+  ggprism::annotation_ticks(sides = "trbl") +
+  theme_bw() +
+  labs(
+    x = "Incubation time (days)",
+    y = "CH4 produced (µmol/mL)"
+  ) +
+  theme_om23() +
+  theme(
+    panel.grid = element_blank(),
+    aspect.ratio = 1
+  )
+p_total_CH4_per_ml
+
+cowplot::save_plot(
+  filename = "fig_output/p_total_CH4_per_ml.pdf",
+  plot = p_total_CH4_per_ml,
+  base_height = 10,
+  base_width = 10
+)
+```
+
 # Calculate production rates
 
 ```{r}
-production_rates <- gc_samples_calc_wt0 |> 
+production_rates <- gc_henry |> 
   group_by(well, depth, amendment) |> 
-  filter(dt == max(dt))
+  filter(dt == max(dt)) |> 
+  mutate(
+    umol_per_ml_per_day = umol_total_per_ml / as.numeric(dt),
+    umol_per_ml_per_day.upper = umol_total_per_ml.upper / as.numeric(dt),
+    umol_per_ml_per_day.lower = umol_total_per_ml.lower / as.numeric(dt)
+  ) |> 
+  select(well, depth, amendment, dt,
+         umol_total, umol_total.upper, umol_total.lower,
+         umol_per_ml_per_day, umol_per_ml_per_day.upper, umol_per_ml_per_day.lower)
 ```
 
-# Export plot
+# Export
+
+Export plot
 
 ```{r}
 cowplot::save_plot(
@@ -562,4 +620,10 @@ cowplot::save_plot(
   base_height = 6,
   base_width = 6
 )
+```
+
+Export production rate data
+
+```{r}
+production_rates |> writexl::write_xlsx(path = "data_output/ch4_production.xlsx")
 ```
