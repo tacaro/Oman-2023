@@ -9,7 +9,15 @@ editor_options:
 ## Setup
 
 ```{r}
-library(tidyverse)
+library(tidyverse) # Easily Install and Load the 'Tidyverse', CRAN v2.0.0 
+# install.packages("devtools")
+devtools::install_github("https://github.com/KopfLab/isoCRDS/")
+library(isoCRDS) # Read and Analyze Cavity Ring Down Spectroscopy (CRDS) Data, [github::KopfLab/isoCRDS] v0.1.0
+library(lubridate)
+```
+
+```{r}
+
 
 test_vols <- tibble(
   at13C_final = c(1, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 99),
@@ -45,5 +53,291 @@ test |> ggplot(
   geom_line() +
   coord_cartesian(ylim = c(0, 1e6)) +
   theme_bw()
-plotly::ggplotly()
+#plotly::ggplotly()
+```
+
+# Load Picarro Data
+
+Here I load in the Picarro data, switch it from UTC to MST timezone, then account for daylight savings by adding an hour to the datetimes. It's not an ideal solution, but in the absence of advanced datetime handling in `isoCRDS`, it will suffice.
+
+```{r}
+cache_exists <- file.exists("cache/picarro_standards.rds")
+
+if(!cache_exists) {
+  mar11 <- iso_read_many_crds(
+  directory = "data/Picarro/raw_data/11/") |> 
+  mutate(
+    datetime = datetime |> lubridate::with_tz("MST"),
+    datetime = datetime + lubridate::hours(1)
+  ) |> 
+  filter(datetime > "2024-03-11 11:00:00")
+
+mar12 <- iso_read_many_crds(directory = "data/Picarro/raw_data/12") |> 
+  mutate(
+    datetime = datetime |> lubridate::with_tz("MST"),
+    datetime = datetime + lubridate::hours(1)
+  ) |> 
+  filter(datetime > "2024-03-12 10:00:00")
+
+mar13 <- iso_read_many_crds(directory = "data/Picarro/raw_data/13") |> 
+  mutate(
+    datetime = datetime |> lubridate::with_tz("MST"),
+    datetime = datetime + lubridate::hours(1)
+    ) |> 
+  filter(datetime > "2024-03-13 10:00:00")
+
+mar14 <- iso_read_many_crds(directory = "data/Picarro/raw_data/14") |> 
+  mutate(
+    datetime = datetime |> lubridate::with_tz("MST"),
+    datetime = datetime + lubridate::hours(1)
+    ) |> 
+  filter(datetime > "2024-03-14 10:00:00")
+
+mar15 <- iso_read_many_crds(directory = "data/Picarro/raw_data/15") |> 
+  mutate(datetime = datetime |> lubridate::with_tz("MST"),
+         datetime = datetime + lubridate::hours(1)) |>    
+  filter(datetime > "2024-03-15 10:00:00")
+
+mar11 |> write_rds("cache/picarro_mar11.rds")
+mar12 |> write_rds("cache/picarro_mar12.rds")
+mar13 |> write_rds("cache/picarro_mar13.rds")
+mar14 |> write_rds("cache/picarro_mar14.rds")
+mar15 |> write_rds("cache/picarro_mar15.rds")
+
+
+mar13 |> 
+  ggplot(
+    aes(
+      x = datetime,
+      y = HR_Delta_iCH4_Raw
+    )
+  ) +
+  geom_line() +
+  coord_cartesian(ylim = c(0, 1e5))
+
+  # stitch all the CRDS files together into a complete dataset
+  picarro_standards <- bind_rows(mar11, mar12, mar13, mar14, mar15)
+
+  # write to cache
+  picarro_standards |> write_rds(file = "cache/picarro_standards.rds")
+} else {
+  picarro_standards <- read_rds("cache/picarro_standards.rds")
+}
+
+
+```
+
+# Load peak mappings
+
+```{r}
+picarro_map <- readxl::read_excel("data/Picarro/picarro_standard_curve_manual.xlsx", sheet = 2) |> 
+  select(
+    yyyy, mm, dd, flateau_in, `target at%`, sample_id, tech_rep, exp_rep,
+    sample_id_unique, flateau_duration_min
+  ) |> 
+  mutate(
+    datetime_start = force_tz(ymd_hms(paste(yyyy, mm, dd, flateau_in)), "MST"),
+    datetime_end = force_tz(datetime_start + minutes(flateau_duration_min), "MST")
+  ) |> 
+  select(datetime_start, datetime_end, sample_id, sample_id_unique)
+
+picarro_metadata <- readxl::read_excel("data/Picarro/picarro_standard_curve_manual.xlsx", sheet = 2) |> 
+  select(sample_id, sample_id_unique, `target at%`)
+```
+
+# Map peaks
+
+```{r}
+mapped_exists <- file.exists("cache/picarro_mapped.rds")
+
+if(!mapped_exists) {
+  picarro_mapped <- iso_map_crds(
+  crds_data = picarro_standards,
+  sample_map = picarro_map
+)
+
+picarro_mapped_filt <- picarro_mapped |> 
+  filter(!is.na(sample_id)) |> 
+  select(datetime, datetime_start, datetime_end, sample_id)
+  picarro_mapped |> write_rds(file = "cache/picarro_mapped.rds")
+} else{
+  picarro_mapped <- read_rds("cache/picarro_mapped.rds")
+}
+
+
+
+```
+
+### Summarize
+
+Convert from delta notation `HR_Delta_iCH4_Raw` to isotopic ratio `R13` by dividing by 1000 (get out of permil units), adding 1, and multiplying by VPDB R13 value.
+
+Then convert to fractional abundance `F13` by
+
+$$
+F13C = R13C / (1 + R13C)
+$$
+
+and to atom percent by multiplying by 100%.
+
+```{r}
+# Define multiple summary functions:
+mean_sd <- list(
+  mean = ~mean(.x, na.rm = TRUE),
+  sd = ~sd(.x, na.rm = TRUE)
+)
+
+picarro_summary <- picarro_mapped |> 
+  group_by(sample_id_unique) |> 
+  summarize(across(where(is.numeric), mean_sd)) |> 
+  ungroup() |> 
+  select(sample_id_unique, 
+         HR_12CH4_mean, HR_13CH4_mean, HR_Delta_iCH4_Raw_mean,
+         HR_12CH4_sd, HR_13CH4_sd, HR_Delta_iCH4_Raw_sd
+         ) |> 
+  mutate(
+    # Means:
+    HR_R13_CH4_mean = ((HR_Delta_iCH4_Raw_mean / 1000) + 1) * 0.011180,
+    HR_F13_CH4_mean = (HR_R13_CH4_mean)/(1 + HR_R13_CH4_mean),
+    HR_at13_CH4_mean = HR_F13_CH4_mean * 100,
+    # SDs:
+    HR_R13_CH4_sd = ((HR_Delta_iCH4_Raw_sd / 1000) + 1) * 0.011180,
+    HR_F13_CH4_sd = (HR_R13_CH4_sd)/(1 + HR_R13_CH4_sd),
+    HR_at13_CH4_sd = HR_F13_CH4_sd * 100,
+  ) |> 
+  left_join(picarro_metadata, by = "sample_id_unique") |> 
+  rename(target_at13C = `target at%`)
+
+
+```
+
+## Plot the standard curve
+
+```{r}
+p_picarro_summary <- picarro_summary |> 
+  filter(
+    !str_detect(sample_id, "NEG")
+  ) |> 
+  ggplot(
+    aes(
+      x = target_at13C,
+      y = HR_at13_CH4_mean,
+      #label = sample_id_unique
+    )
+  ) +
+  geom_abline(
+    linetype = "dotted",
+    color = "black"
+  ) +
+  geom_pointrange(
+    aes(
+      ymin = HR_at13_CH4_mean - HR_at13_CH4_sd,
+      ymax = HR_at13_CH4_mean + HR_at13_CH4_sd
+    )
+  ) +
+  geom_smooth(
+    method = "lm",
+    color = "red",
+    linewidth = 0.5,
+    se = FALSE
+  ) +
+    geom_smooth(
+    data = function(df) df |> filter(target_at13C < 70),
+    method = "lm",
+    color = "blue",
+    linewidth = 0.5,
+    se = FALSE
+  ) +
+  ggprism::annotation_ticks(sides = "bl") +
+  ggpmisc::stat_poly_eq(ggpmisc::use_label(c("eq", "R2")), color = "red") +
+  ggpmisc::stat_poly_eq(
+    data = function(df) df |> filter(target_at13C < 70),
+    ggpmisc::use_label(c("eq", "R2")), color = "blue",
+    label.y = 0.9
+    ) +
+  scale_x_continuous(
+    breaks = c(0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100)
+  ) +
+  scale_y_continuous(
+    breaks = c(0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100)
+  ) +
+  coord_cartesian(xlim = c(0, 100), ylim = c(0, 100)) +
+  labs(
+    x = latex2exp::TeX("Predicted $^{13}CH_{4}$ enrichment (at. %)"),
+    y = latex2exp::TeX("Observed $^{13}CH_{4}$ enrichment (at. %)")
+  ) +
+  theme_bw() +
+  theme(
+    aspect.ratio = 1,
+    axis.ticks = element_blank(),
+    panel.grid = element_blank()
+  )
+p_picarro_summary
+
+cowplot::save_plot(
+  plot = p_picarro_summary,
+  filename = "fig_output/picarro_standard_curve.pdf",
+  base_height = 5,
+  base_width = 5
+)
+
+```
+
+## Plot the residuals
+
+```{r}
+p_residuals <- picarro_summary |> 
+  filter(
+    !str_detect(sample_id, "NEG")
+  ) |> 
+  mutate(
+    residual = HR_at13_CH4_mean - target_at13C
+  ) |> 
+  ggplot(
+    aes(
+      x = HR_at13_CH4_mean,
+      y = residual,
+      #label = sample_id_unique
+    )
+  ) +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  geom_vline(xintercept = 60, linetype = "dashed") +
+  geom_point(
+    aes(color = HR_at13_CH4_mean)
+  ) +
+  geom_smooth(
+    method = "loess",
+    color = "red",
+    linewidth = 0.5,
+    se = TRUE
+  ) +
+    geom_smooth(
+    data = function(df) df |> filter(target_at13C < 70),
+    method = "loess",
+    color = "blue",
+    linewidth = 0.5,
+    se = TRUE
+  ) +
+  scale_x_continuous(
+    breaks = c(0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100)
+  ) +
+  coord_cartesian(xlim = c(0, 100), ylim = c(-6, 6)) +
+  scale_color_viridis_c() +
+  labs(
+    y = "Standard residual (at. %)",
+    x = latex2exp::TeX("Observed $^{13}CH_{4}$ enrichment (at. %)"),
+    color = latex2exp::TeX("Observed $^{13}CH_{4}$ enrichment (at. %)"),
+  ) +
+  theme_bw() +
+  theme(
+    aspect.ratio = 1,
+    legend.position = "bottom",
+    panel.grid = element_blank()
+  )
+p_residuals
+
+cowplot::save_plot(
+  plot = p_residuals, filename = "fig_output/picarro_residuals.pdf",
+  base_height = 5, base_width = 5
+)
 ```
