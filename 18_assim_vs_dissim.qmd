@@ -1,0 +1,205 @@
+---
+title: "Assim vs. Dissim"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+This is a short and sweet script for comparing assimilation rates to production rates of methane across the boreholes sampled
+
+## Setup
+
+```{r}
+library(tidyverse)
+library(gt)
+
+source("source/color_palettes.R")
+```
+
+```{r}
+# CH4 production data
+ch4 <- readxl::read_excel(path = "data_output/ch4_preference.xlsx") |> 
+  select(well, depth, amendment, umol_per_ml_per_day, umol_per_ml_per_day_SIP)
+
+# assimilation data
+assim_data <- read_rds("cache/SIMS_assim_data.RDS") |> 
+  filter(amendment != "negative control") |> 
+  group_by(well, depth, amendment) |> 
+  summarize(
+    fmol_per_cell_per_day = mean(rC.fmol.d, na.rm = TRUE)
+  )
+
+# cell count data
+cell_counts <- readxl::read_excel("data_output/cell_counts.xlsx") |> 
+  select(well, depth, cells_per_ml)
+
+# phyloseq 16S data
+ps.decontam <- readxl::read_excel("data_output/ps_decontam.xlsx")
+```
+
+### Wrangle our phyloseq data
+
+Here, we want to see how much of each sample is Methanobacterium by doing a rough approximation based on cell counts \* relative abundances. This isn't a perfect metric (what microbial composition metric is?) but can give us a rough/relative sense for methanogen abundance in our samples. We can then multiply Methanobacterium relative abundance by cell counts to get estimated absolute abundance. Then, we can divide our methane production rates by these Methanogen-specific cell counts to get cell-specific CH4 production.
+
+```{r}
+total_abundances <- ps.decontam |> 
+  filter(experiment == "OM23 Field") |> 
+  select(-c(is_blank, experiment, depth_m, amendment)) |> 
+  group_by(well, depth) |> 
+  summarize(
+    total_counts = sum(Abundance)
+  )
+
+methano_abundances <- ps.decontam |> 
+  filter(experiment == "OM23 Field") |> 
+  select(-c(is_blank, experiment, depth_m, amendment)) |> 
+  filter(Genus == "Methanobacterium") |> 
+  group_by(well, depth) |>
+  summarize(methano_counts = sum(Abundance))
+
+methano_relabund <- total_abundances |> 
+  left_join(methano_abundances, by = c("well", "depth")) |> 
+  mutate(relabund = methano_counts / total_counts)
+
+methano_relabund |> 
+  gt() |> 
+  fmt_percent(columns = relabund) |> 
+  data_color(columns = relabund, palette = "Blues")
+```
+
+### Join with cell count data
+
+Multiply total cell counts by Methanobacterium relative abundance
+
+```{r}
+methano_cell_counts <- methano_relabund |> 
+  left_join(cell_counts, by = c("well", "depth")) |> 
+  mutate(methanos_per_ml = cells_per_ml * relabund)
+```
+
+## Big Join
+
+Now we join the methano cell counts, the assimilation data, and the ch4 production data. We can calculate cell-specific methane production rates by dividing the volume-specific value by the number of cells:
+
+$$
+\frac{umol_{CH_4}}{mL \cdot day} \cdot \frac{1mL}{cells} = \frac{umol_{CH_4}}{cell \cdot day}
+$$
+
+We can also define a methanogen growth efficiency term as the ratio of carbon dissimilated as methane versus carbon assimilated into biomass.
+
+$$
+MGE = \frac{\text{mol C assimilated into biomass}}{\text{mol C released as }CH_4}
+$$
+
+```{r}
+joined_assim <- assim_data |> 
+  left_join(methano_cell_counts, by = c("well", "depth")) |> 
+  left_join(ch4, by = c("well", "depth", "amendment")) |> 
+  mutate(
+    umol_per_cell_per_day = umol_per_ml_per_day / methanos_per_ml,
+    umol_per_cell_per_day_SIP = umol_per_ml_per_day_SIP / methanos_per_ml
+  ) |> 
+  # convert to fmol
+  mutate(
+    fmol_ch4_per_cell_per_day = umol_per_cell_per_day * 1e9,
+    fmol_ch4_per_cell_per_day_SIP = umol_per_ml_per_day_SIP * 1e9
+  ) |> 
+  # calculate methanogen growth efficiency
+  mutate(
+    methanogen_growth_efficiency = fmol_per_cell_per_day / fmol_ch4_per_cell_per_day,
+    methanogen_growth_efficiency_SIP =  fmol_per_cell_per_day / fmol_ch4_per_cell_per_day_SIP
+  )
+
+
+```
+
+Plot it
+
+```{r}
+assim_lm <- lm(
+  joined_assim$fmol_per_cell_per_day ~ joined_assim$fmol_ch4_per_cell_per_day)
+
+slope_annot <- assim_lm |> broom::tidy() |> 
+  filter(term == "joined_assim$fmol_ch4_per_cell_per_day") |> pull(estimate)
+
+int_annot <- assim_lm |> broom::tidy() |> 
+  filter(term == "(Intercept)") |> pull(estimate)
+
+annot = paste0("y = ", round(slope_annot, 4), "x + ", round(int_annot, 4))
+  
+
+p_dissim_vs_assim <- joined_assim |> 
+  ggplot(
+    aes(
+      x = fmol_per_cell_per_day,
+      y = fmol_ch4_per_cell_per_day,
+    )
+  ) +
+  annotation_logticks(sides = "bl") +
+  geom_smooth(aes(group = "identity"),
+    method = "lm", formula = "y~x", se = TRUE,
+    show.legend = FALSE, color = "black") +
+  geom_point(aes(
+    color = well,
+    fill = well,
+    shape = amendment
+    ),
+    size = 2) +
+  scale_shape_manual(values = c(21, 22, 23)) +
+  scale_x_log10() +
+  scale_y_log10(breaks = c(10, 100)) +
+  scale_fill_manual(values = well_palette) +
+  scale_color_manual(values = well_palette) +
+  annotate(geom = "text", label = annot, y = 300, x = 1e-4) +
+  labs(
+    x = "Cell-specific C assimilation (fmol C per cell per day)",
+    y = "Cell-specific methane production (fmol CH4 per cell per day)"
+  ) +
+  theme_bw() +
+  theme(aspect.ratio = 1)
+p_dissim_vs_assim
+
+# cowplot::save_plot(filename = "fig_output/assim_vs_ch4.pdf", plot = p_dissim_vs_assim,
+#                    base_height = 7, base_width = 7)
+```
+
+```{r}
+p_dissim_vs_assim2 <- joined_assim |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
+  ggplot(
+    aes(
+      y = well,
+      x = methanogen_growth_efficiency,
+      fill = amendment,
+      color = amendment
+    )
+  ) +
+  geom_boxplot(color = "black", width = 0.25) +
+  #geom_point(aes(group = amendment), position = position_dodge(width = 0.25)) +
+  #ggdist::stat_pointinterval(position = position_dodge(width = 0.25)) +
+  scale_x_log10(labels = scales::label_percent()) +
+  annotation_logticks(sides = "b") +
+  scale_fill_manual(values = amendment_palette) +
+  scale_color_manual(values = amendment_palette) +
+  labs(
+    y = "", x = latex2exp::TeX("Methanogen Growth Efficiency = $\\frac{fmol \\; biomass}{fmol CH_4}$"),
+    color = "Carbon Source",
+    fill = "Carbon Source"
+  ) +
+  theme_bw() +
+  theme(
+    axis.text = element_text(color = "black"),
+    panel.grid = element_blank(),
+    panel.grid.major.x = element_line(color = "gray", linewidth = 0.1)
+  )
+p_dissim_vs_assim2
+
+cowplot::save_plot(filename = "fig_output/methanogen_growth_effic.pdf", 
+                   plot = p_dissim_vs_assim2, base_height = 4, base_width = 6)
+```
+
+```{r}
+
+  
+```
