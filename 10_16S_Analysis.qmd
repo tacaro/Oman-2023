@@ -167,8 +167,7 @@ df$Index <- seq(nrow(df)) # create a new column called Index that's a simple ind
 
 ggplot(data=df, aes(x=Index, y=LibrarySize, color=is_blank, label = rownames(df))) + geom_point() + theme_bw()
 
-# and do a plotly!
-plotly::ggplotly()
+
 ```
 
 The library sizes of the positive samples range from low (hundreds of reads) to 60000 reads. There are some negative controls with plenty of reads and positive samples with few reads. There is one negative control "TAC-Inc-Filter-Blank-A" that corresponds to a blank filter that was used to assess contamination during filter sampling after incubation. However, most of these contaminants appear to be crossover from the other samples (ASVs 1-5). I do have a note in my notebook that I processed this blank *after* I cut out all of the other filters and removed them with tweezers: it is likely the tweezers were not sufficiently decontaminated with a simple ethanol wash. Luckily, the `decontam` package is sensitive to removing sample crossover. Overall, the blanks look really good. We shall proceed.
@@ -310,6 +309,13 @@ write_rds(ps.decontam, "cache/ps-decontam.RDS")
 
 # save the contaminant PS object
 write_rds(ps.contaminants, "cache/ps-contaminants.RDS")
+
+# save the melted phyloseq object for tidy analyses (less RAM efficient!)
+writexl::write_xlsx(ps.decontam |> ps_melt(), path = "data_output/ps_decontam.xlsx")
+```
+
+```{r}
+
 ```
 
 # Analysis - All Samples
