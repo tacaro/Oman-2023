@@ -275,8 +275,6 @@ $$
 H_2[tonnes \times (km^3 \times yr)^{-1}] = VSP[J \times (km^3 \times yr)^{-1}] \times \frac{1 \: tonne \:H_2}{2.393 \times 10^{10} J} \quad \quad (Eq. 11)
 $$
 
-For sulfate reduction, we can use the free energy minimum calculated by [@hoehler2001]: -19.1 kJ mol sulfate in the reaction $SO_4^{2-} + 4H_2 \rightarrow S^{2-} + 4H_2O$, or $-19.4 \: kJ/4mol \: H_2 = -4.85 \: kJ / mol \: H_2 = -4850 \: J / mol \: H_2$.
-
 $$
 H_2[tonnes \times (km^3 \times yr)^{-1}] = VSP[J \times (km^3 \times yr)^{-1}] \times \frac{1 mol \: H_2}{4850 \: J}
 \times \frac{2.01568 \: g \: H_2}{1 mol \: H_2} \times \frac{1 \: tonne}{10^6 \: g}
@@ -293,7 +291,8 @@ assim_metabolic <- assim_data_summary |>
     VSP.J_s_cm3 = CSP.J_s_cell * 1e5, # calculate VSP (Eq. 9)
     VSP.J_yr_km3 = VSP.J_s_cm3 * 3.154e7 * 1e15, # VSP unit scaling (Eq. 10)
     MA_H2ox.tonnes_yr_km3 = VSP.J_yr_km3 / 2.393e10, # H2oxidation from VSP (Eq. 11)
-    SRB_H2ox.tonnes_yr_km3 = VSP.J_yr_km3 * (1/4850) * 2.01568 * (1/1e6)
+    SRB_H2ox.tonnes_yr_km3 = VSP.J_yr_km3 * (1/4850) * 2.01568 * (1/1e6),
+    MA_CH4_prod.tonnes_yr_km3 = MA_H2ox.tonnes_yr_km3
   )
 ```
 
@@ -343,3 +342,38 @@ cowplot::save_plot(plot = p_h2, filename = "fig_output/h2_ox_tonnes.pdf",
 The value estimated by Templeton et al. (2024 - in review) of 3.95 tonnes $H_2/km^3/yr$, indicated by the vertical red line, appears to be an under-estimate of hydrogen oxidation via methanogenesis. The cause of this is that Templeton et al. assume a cellular turnover rate of 1 $yr^{-1}$, a slower turnover rate than what is actually observed in many parts of the system.
 
 Our estimates display substantial variability in volume-specific hydrogen oxidation. The sources of this variability arises from the data itself: microbial carbon turnover rates in the system are highly heterogeneous across space and depth.
+
+What about methane production? In the reaction for methanogenesis, methane is produced in equimolar amounts as H2 is oxidized:
+
+```{r}
+p_ch4 <- assim_metabolic |> 
+  filter(mu_star.yr > 0) |> 
+  filter(amendment == "bicarbonate") |> 
+  ggplot(
+    aes(
+      x = MA_CH4_prod.tonnes_yr_km3,
+      y = depth_str,
+      color = amendment
+    )
+  ) +
+  ggdist::stat_pointinterval(point_interval = "mean_qi", color = "black") +
+  # ggdist::stat_pointinterval(aes(x = SRB_H2ox.tonnes_yr_km3),
+  #                            point_interval = "mean_qi", color = "#e39714",
+  #                            position = position_nudge(y = -0.2),
+  #                            shape = 15) +
+  annotation_logticks(sides = "b") +
+  scale_x_log10(
+                labels = scales::trans_format("log10", scales::math_format(10^.x))) +
+  scale_color_manual(values = well_palette) +
+  facet_grid(vars(well)) +
+  labs(
+    x = latex2exp::TeX("$CH_{4} \\; [tonnes \\cdot (km^3 \\cdot yr)^{-1}]$"),
+    y = ""
+  ) +
+  theme_om23() + 
+  theme(
+    panel.spacing = unit(0.15, "cm"),
+    legend.position = "None"
+  )
+p_ch4
+```
