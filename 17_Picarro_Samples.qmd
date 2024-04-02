@@ -273,12 +273,12 @@ p_om23_crds
 
 
 
-cowplot::save_plot(
-  filename = "fig_output/crds_prelim.pdf",
-  plot = p_om23_crds,
-  base_height = 8,
-  base_width = 8
-)
+# cowplot::save_plot(
+#   filename = "fig_output/crds_prelim.pdf",
+#   plot = p_om23_crds,
+#   base_height = 8,
+#   base_width = 8
+# )
 ```
 
 # Preference calculations
@@ -352,7 +352,7 @@ p_om23_crds_fl <- crds_w_fl |>
   labs(
     x = "",
     y = latex2exp::TeX("$^{13}C$ (at. %)"),
-    color = latex2exp::TeX("$^{13}C$ (at. %)"),
+    fill = latex2exp::TeX("$^{13}C$ (at. %)"),
   ) +
   theme(
     panel.grid = element_blank(),
@@ -364,6 +364,11 @@ p_om23_crds_fl <- crds_w_fl |>
   )
 
 p_om23_crds_fl
+
+cowplot::save_plot(
+  filename = "fig_output/at13C_ch4.pdf", plot = p_om23_crds_fl,
+  base_height = 8, base_width = 8
+)
 ```
 
 ## Plot relative error
@@ -414,10 +419,10 @@ p_relerror
 
 p_all_error <- cowplot::plot_grid(p_error, p_relerror, rel_widths = c(0.5, 0.5))
 
-cowplot::save_plot(
-  plot = p_all_error, filename = "fig_output/picarro_error.pdf",
-  base_height = 5, base_width = 8
-)
+# cowplot::save_plot(
+#   plot = p_all_error, filename = "fig_output/picarro_error.pdf",
+#   base_height = 5, base_width = 8
+# )
 ```
 
 ## Calculate differences in F13CH4
@@ -537,8 +542,8 @@ p_crds_diff2 <- crds_diff |>
 
 p_crds_diff2
 
-cowplot::save_plot(plot = p_crds_diff2, filename = "fig_output/frac_13CH4.pdf",
-                   base_height = 4, base_width = 10)
+# cowplot::save_plot(plot = p_crds_diff2, filename = "fig_output/frac_13CH4.pdf",
+#                    base_height = 4, base_width = 10)
 ```
 
 ### Summary table
@@ -588,27 +593,27 @@ crds_moles <- crds_diff |>
     umol_total_SIP = umol_total * (percent_ch4_from_label / 100),
     umol_total_SIP.upper = umol_total.upper * (percent_ch4_from_label / 100),
     umol_total_SIP.lower = umol_total.lower * (percent_ch4_from_label / 100),
-    umol_per_day_SIP = umol_total_SIP / as.numeric(dt),
-    umol_per_day_SIP.upper = umol_total_SIP.upper / as.numeric(dt),
-    umol_per_day_SIP.lower = umol_total_SIP.lower / as.numeric(dt)
+    umol_per_ml_per_day_SIP = (umol_total_SIP / 50) / as.numeric(dt),
+    umol_per_ml_per_day_SIP.upper = (umol_total_SIP.upper / 50) / as.numeric(dt),
+    umol_per_ml_per_day_SIP.lower = (umol_total_SIP.lower / 50) / as.numeric(dt)
   )
 
 gt_crds_moles <- crds_moles |> 
   select(well, depth, amendment, percent_ch4_from_label, 
-         umol_total, umol_total_SIP, umol_per_day, umol_per_day_SIP) |> 
+         umol_total, umol_total_SIP, umol_per_ml_per_day, umol_per_ml_per_day_SIP) |> 
   mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
   arrange(well, amendment, depth) |> 
   gt() |> 
   cols_hide(well) |> 
   cols_label(
-    depth = "depth (mbs)",
-    amendment = "Carbon Source",
-    #percent_ch4_from_other = "Fraction of {{CH_4}} from other sources (%)",
-    percent_ch4_from_label = "Fraction {{CH_4}} from C source (%)",
-    umol_total = "Total {{CH_4}}",
-    umol_total_SIP = "Source-specific {{CH_4}}",
-    umol_per_day = "Total {{CH_4}}",
-    umol_per_day_SIP = "Source-specific {{CH_4}}"
+    # depth = "depth (mbs)",
+    # amendment = "Carbon Source",
+    # #percent_ch4_from_other = "Fraction of {{CH_4}} from other sources (%)",
+    # percent_ch4_from_label = "Fraction {{CH_4}} from C source (%)",
+    # umol_total = "Total {{CH_4}}",
+    # umol_total_SIP = "Source-specific {{CH_4}}",
+    # umol_per_day = "Total {{CH_4}}",
+    # umol_per_day_SIP = "Source-specific {{CH_4}}"
   ) |> 
   tab_spanner(
     label = "{{CH_4}} Production (µmol)",
@@ -616,7 +621,7 @@ gt_crds_moles <- crds_moles |>
   ) |> 
   tab_spanner(
     label = "{{CH_4}} Production Rate (µmol / day)",
-    columns = c(umol_per_day, umol_per_day_SIP)
+    columns = c(umol_per_ml_per_day, umol_per_ml_per_day_SIP)
   ) |> 
   tab_spanner(
     label = "Carbon Preference",
@@ -624,8 +629,6 @@ gt_crds_moles <- crds_moles |>
   ) |> 
   fmt_percent(columns = c(percent_ch4_from_label),
               scale_values = FALSE, decimals = 1) |> 
-  fmt_number(columns = c(umol_total, umol_total_SIP, umol_per_day, umol_per_day_SIP)
-             ,decimals = 1) |> 
   data_color(columns = percent_ch4_from_label, palette = "Reds") |>
   tab_row_group(rows = well == "BA3A", label = "BA3A") |> 
   tab_row_group(rows = well == "BA4A", label = "BA4A") |> 
@@ -639,6 +642,8 @@ gt_crds_moles <- crds_moles |>
   tab_style(style = list(cell_fill(color = "#004d01"), 
                          cell_text(color = "white")),
             locations = cells_row_groups(groups = "BA3A"))
+gt_crds_moles
 
 gt_crds_moles |> gt::gtsave(filename = "data_output/ch4_preference.html")
+crds_moles |> writexl::write_xlsx(path = "data_output/ch4_preference.xlsx")
 ```
