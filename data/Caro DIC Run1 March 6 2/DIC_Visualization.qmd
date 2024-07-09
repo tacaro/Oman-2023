@@ -1,0 +1,111 @@
+---
+title: "DIC_visualization"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+# Load
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+om23_dic_run1 <- readxl::read_excel("DIC 1ml run_corrected_data_updated.xlsx") |> 
+  mutate(
+    well = 
+      case_when(
+        str_detect(Identifier1, "BA3A") ~ "BA3A",
+        str_detect(Identifier1, "BA4A") ~ "BA4A",
+        str_detect(Identifier1, "BA1B") ~ "BA1B",
+        str_detect(Identifier1, "BA1D") ~ "BA1D",
+      ),
+    type = case_when(
+      str_detect(Identifier1, "-e") ~ "Anaerobic",
+      str_detect(Identifier1, "-f") ~ "Falcon Tube",
+      str_detect(Identifier1, "BA1D") ~ "Anaerobic",
+    ),
+    depth = case_when(
+      str_detect(Identifier1, "250") ~ 250,
+      str_detect(Identifier1, "20") ~ 20,
+      str_detect(Identifier1, "150") ~ 150,
+      str_detect(Identifier1, "270") ~ 270,
+      str_detect(Identifier1, "120") ~ 170,
+    )
+  )
+
+
+om23_dic_run1_samples <- om23_dic_run1 |> 
+  filter(!is.na(well))
+
+
+```
+
+# plot
+
+```{r}
+om23_dic_run1_samples |> ggplot(
+  aes(
+    y = as.numeric(DIC_uM),
+    x = as.numeric(depth),
+    group = type,
+    shape = type,
+    color = well
+  )
+) +
+  geom_point(size = 2) +
+  geom_line() +
+  scale_x_reverse() +
+  coord_flip() +
+  facet_wrap(vars(well)) +
+  ggsci::scale_color_lancet() +
+  theme_bw() +
+  labs(
+    x = "Depth (m)",
+    y = "[DIC] (µM)"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 90),
+    panel.grid = element_blank()
+  )
+
+
+om23_dic_run1_samples |> 
+  filter(type == "Anaerobic") |> 
+  filter(well != "BA1D") |> 
+  arrange(depth) |> 
+  ggplot(
+  aes(
+    x = as.numeric(d13C.scale),
+    y = as.numeric(depth),
+    color = well,
+    group = well
+  )
+) +
+  geom_path(color = "gray") +
+  geom_pointrange(
+    aes(xmin = d13C.scale - d13C.error.S,
+        xmax = d13C.scale + d13C.error.S
+        )
+    ) +
+  ggsci::scale_color_lancet() +
+  scale_y_reverse()+
+  theme_bw() +
+  labs(
+    y = "Depth (m)",
+    x = latex2exp::TeX("$\\delta ^{13}C_{VSMOW}$")
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 90),
+    panel.grid = element_blank()
+  )
+```
+
+# Export
+
+```{r}
+om23_dic_run1 |> write_csv("om23_DIC_d13C.csv")
+om23_dic_run1 |> saveRDS(file = "om23_dic_run1.RDS")
+```
