@@ -9,6 +9,7 @@
 data/.DS_Store
 cache/*
 data/Nikon-Widefield/*
+data_output/*
 Data/16S/*
 data/.DS_Store
 fig_output/*
