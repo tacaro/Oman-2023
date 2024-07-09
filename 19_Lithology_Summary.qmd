@@ -1,0 +1,114 @@
+---
+title: "Lithology Summary"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+This script succinctly summarizes and plots differences in bulk density and porosity between the BA cores. Data is sourced from Kelemen 2020 proceedings of the Oman Drilling Project.
+
+## Setup
+
+```{r}
+library(tidyverse)
+source("source/color_palettes.R")
+```
+
+```{r}
+BA4A_data <- readxl::read_excel("data/Kelemen 2020/BA4A_T14.xlsx", skip = 2) |> 
+  #filter(`Depth CAD (m)` > 15) |> 
+  select(`Depth CAD (m)`, `Bulk density (g/cm³)`, `Porosity (vol%)`) |> 
+  mutate(core = "BA4A")
+
+BA1B_data <- readxl::read_excel("data/Kelemen 2020/BA1_T12.xlsx", skip = 2) |> 
+  #filter(`Depth CAD (m)` > 15) |> 
+  select(`Depth CAD (m)`, `Bulk density (g/cm³)`, `Porosity (vol%)`) |>
+  mutate(core = "BA1B")
+
+BA3A_data <- readxl::read_excel("data/Kelemen 2020/BA3A_T11.xlsx", skip = 2) |> 
+  #filter(`Depth CAD (m)` > 15) |> 
+  select(`Depth CAD (m)`, `Bulk density (g/cm³)`, `Porosity (vol%)`) |> 
+  mutate(core = "BA3A")
+
+BA_density_porosity_full <- bind_rows(BA4A_data, BA1B_data, BA3A_data) |> 
+  select(core, everything()) |> 
+  rename(#porosity = `Porosity (vol%)`,
+         #density = `Bulk density (g/cm³)`,
+         depth = `Depth CAD (m)`)
+
+```
+
+## Plot
+
+```{r}
+p_density <- BA_density_porosity_full |> 
+  mutate(core = factor(core, 
+                       levels = c("BA1B", "BA4A", "BA3A"))) |> 
+  ggplot(
+    aes(y = `Bulk density (g/cm³)`,
+        x = depth,
+        color = core)
+  ) +
+  geom_point(size = 1, alpha = 0.5) +
+  geom_smooth(color = "black") +
+  scale_x_reverse() +
+  scale_color_manual(values = well_palette) +
+  facet_wrap(vars(core), 
+             scales = "free_y",
+             ncol = 1) +
+  coord_cartesian(xlim = c(2.2, 3.2)) +
+  coord_flip() +
+  labs(
+    x = "Depth (mbs)",
+    color = "Core", well = "Core"
+  ) +
+  theme_bw() +
+  theme(
+    panel.grid.minor = element_blank(),
+    strip.background = element_rect(color = "black", fill = "black"),
+    strip.text = element_text(color = "white"),
+    legend.position = "none"
+  )
+p_density
+
+p_porosity <- BA_density_porosity_full |> 
+  mutate(core = factor(core, 
+                       levels = c("BA1B", "BA4A", "BA3A"))) |> 
+  ggplot(
+    aes(y = `Porosity (vol%)`,
+        x = depth,
+        color = core)
+  ) +
+  geom_point(size = 1, alpha = 0.5) +
+  geom_smooth(color = "black") +
+  scale_x_reverse() +
+  scale_y_continuous(limits = c(0, 18)) +
+  coord_cartesian(xlim = c(0, 18)) +
+  coord_flip() +
+  scale_color_manual(values = well_palette) +
+  facet_wrap(vars(core), 
+             scales = "free_y",
+             ncol = 1) +
+  labs(
+    x = "Depth (mbs)",
+    color = "Core", well = "Core"
+  ) +
+  theme_bw() +
+  theme(
+    panel.grid.minor = element_blank(),
+    strip.background = element_rect(color = "black", fill = "black"),
+    strip.text = element_text(color = "white"),
+    legend.position = "none"
+  )
+p_porosity
+
+p_combined <- cowplot::plot_grid(p_density, p_porosity)
+p_combined
+
+  cowplot::save_plot(
+    plot = p_combined,
+    filename = "fig_output/BA_porosity_density.pdf",
+    base_height = 8, base_width = 7
+  )
+```
