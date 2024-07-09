@@ -295,7 +295,7 @@ p_residuals <- picarro_summary |>
   ) |> 
   ggplot(
     aes(
-      x = HR_at13_CH4_mean,
+      x = target_at13C,
       y = residual,
       #label = sample_id_unique
     )
@@ -325,7 +325,7 @@ p_residuals <- picarro_summary |>
   scale_color_viridis_c() +
   labs(
     y = "Standard residual (at. %)",
-    x = latex2exp::TeX("Observed $^{13}CH_{4}$ enrichment (at. %)"),
+    x = latex2exp::TeX("Expected $^{13}CH_{4}$ enrichment (at. %)"),
     color = latex2exp::TeX("Observed $^{13}CH_{4}$ enrichment (at. %)"),
   ) +
   theme_bw() +
