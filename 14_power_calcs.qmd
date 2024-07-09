@@ -22,7 +22,7 @@ Load files
 ```{r}
 assim_data <- read_rds("cache/SIMS_assim_data.RDS") |> 
   # trim out columns not needed for this exercise:
-  select(sample_id, well, depth, amendment, at13C, mu.d, 
+  select(sample_id, well, depth, amendment, F13C, mu.d, 
          gen.d, K, cell.C.fg, rC.fmol.d)
 ```
 
@@ -60,8 +60,8 @@ $Y^*$ relates carbon turnover to energy utilization.
 Hoehler et al. find that biosynthesis yield $(Y^*)$ for anaerobic organisms is related to mass-specific carbon turnover rate $(yr^{-1})$ by the relationship
 
 $$
-Y^* = \frac{0.03 \pm 0.017 \: g \: C_{biosynthesis}}{kJ} \times \frac{10\times ^{-5} kJ}{1J} = 
-\frac{0.0000003 \pm 17 \: g \: C }{J}
+Y^* = \frac{0.03 \pm 0.017 \: g \: C_{biosynthesis}}{kJ} \times \frac{10 ^{-3} kJ}{1J} = 
+\frac{0.00003 \pm 0.000017 \: g \: C }{J}
 \quad \quad (Eq. 4)
 $$
 
@@ -103,13 +103,13 @@ Y^*[g \: C_{biosynthesis} J^{-1}] &=
 {MSP[ J \times s^{-1} \times g \: C_{biomass}^{-1}]} &= 
 \frac{
 \mu ^*[g \: C_{biosynthesis} \times (s \times g \: C_{biomass})^{-1} ]}
-{0.0000003 \pm 17 \: g \: C_{biosynthesis} \times J^{-1}
+{0.00003 \pm 0.000017 \: g \: C_{biosynthesis} \times J^{-1}
 } 
 \quad \quad (Eq. 7)
 \end{aligned}
 $$
 
-## Calculations
+## Calculate MSP
 
 ```{r}
 #| label: calculate mu star and MSP
@@ -117,7 +117,7 @@ $$
 
 assim_data_summary <- assim_data |> 
   filter(amendment != "negative control") |> # remove negative control data
-  select(-c(at13C, K, sample_id)) |> # clean up columns
+  select(-c(F13C, K, sample_id)) |> # clean up columns
   rename(fmolC_per_cell_day = rC.fmol.d, TG.d = gen.d) |> # rename to intuitive name
   mutate(
     gC_biomass = cell.C.fg / 1e15, # grams of cell biomass from femtograms
@@ -129,7 +129,9 @@ assim_data_summary <- assim_data |>
     mu_star.day = mu_star.sec * 86400, # convert from seconds-1 to days-1
     mu_star.yr = mu_star.day * 365, # convert from days-1 to -1
     # Eq. 7:
-    MSP.J_s_g = mu_star.sec / 0.0000003
+    MSP.J_s_g = mu_star.sec / 0.00003,
+    MSP.J_s_g_lower = mu_star.sec / (0.00003 - 0.000017),
+    MSP.J_s_g_upper = mu_star.sec / (0.00003 + 0.000017),
   ) |> 
   # Factor our metadata for better plotting:
   mutate(
@@ -216,7 +218,7 @@ p_MSP
 #                    base_height = 4, base_width = 6)
 ```
 
-Inspecting our data, it is clear that estimates of mass-specific carbon turnover diverge from estimates of biomass generation time. The distinction between these two metrics is that biomass carbon turnover assumes a steady state pool of Carbon. In other words, microbial biomass is not increasing at the aggregate level. When we estimate microbial *growth rate*, we are assuming that cellular division takes place and that microbial biomass is increasing. The growth rate and generation time calculations introduce a natural log term to account for clonal growth. We can see how these values diverge by plotting the "generation rate" (number of cellular generations per year) versus the mass-specific carbon turnover rate (number of cell carbon turnovers per year) where generation rate is defined as the inverse of generation time. Generation time is calculated via the specific growth rate $(\mu_{growth})$ that assumes clonal cell growth:
+Inspecting our data, it is clear that estimates of mass-specific carbon turnover diverge slightly from estimates of biomass generation time. The distinction between these two metrics is that biomass carbon turnover assumes a steady state pool of Carbon. In other words, microbial biomass is not increasing at the aggregate level. When we estimate microbial *growth rate*, we are assuming that cellular division takes place and that microbial biomass is increasing. The growth rate and generation time calculations introduce a natural log term to account for clonal growth. We can see how these values diverge by plotting the "generation rate" (number of cellular generations per year) versus the mass-specific carbon turnover rate (number of cell carbon turnovers per year) where generation rate is defined as the inverse of generation time. Generation time is calculated via the specific growth rate $(\mu_{growth})$ that assumes clonal cell growth:
 
 $$
 T_G = ln(2)/\mu_{growth}
@@ -232,7 +234,7 @@ assim_data_summary |>
   ggplot(
     aes(
       x = mu_star.yr,  # 
-      y = 1/TG.yr,
+      y = TG.yr,
       color = well
     )
   ) +
@@ -242,7 +244,7 @@ assim_data_summary |>
   coord_cartesian(xlim = c(0, 15), ylim = c(0, 15)) +
   labs(
     x = latex2exp::TeX("Mass-specific carbon turnover rate $[yr^{-1}]$"),
-    y = latex2exp::TeX("Generation rate $[yr^{-1}]$")
+    #y = latex2exp::TeX("Generation rate $[yr^{-1}]$")
   ) +
   theme_bw() +
   theme(aspect.ratio = 1)
@@ -280,7 +282,7 @@ H_2[tonnes \times (km^3 \times yr)^{-1}] = VSP[J \times (km^3 \times yr)^{-1}] \
 \times \frac{2.01568 \: g \: H_2}{1 mol \: H_2} \times \frac{1 \: tonne}{10^6 \: g}
 $$
 
-Following a similar approach for methanogenesis, [@hoehler2001] predict that methanogeneic archaea are supported by energy yields as samall as -10.6 kJ/mol CH4 (-1060 J / mol H2)
+Following a similar approach for methanogenesis, [@hoehler2001] predict that methanogeneic archaea are supported by energy yields as small as -10.6 kJ/mol CH4 (-1060 J / mol H2)
 
 ```{r}
 #| label: calculate H2 oxidation rate
@@ -312,7 +314,7 @@ p_h2 <- assim_metabolic |>
       color = amendment
     )
   ) +
-  geom_vline(xintercept = 3.95, color = "red", linewidth = 0.1) +
+  geom_vline(xintercept = 3.95, color = "red", linewidth = 0.5) +
   ggdist::stat_pointinterval(point_interval = "mean_qi", color = "black") +
   # ggdist::stat_pointinterval(aes(x = SRB_H2ox.tonnes_yr_km3),
   #                            point_interval = "mean_qi", color = "#e39714",
@@ -376,4 +378,327 @@ p_ch4 <- assim_metabolic |>
     legend.position = "None"
   )
 p_ch4
+```
+
+# Compare to literature data
+
+Lever et al. 2015 estimate the energy turnover requirements of amino acid racemization during four different scenarios (see Fig. 11, dashed lines). These four scenarios cover a range of protein repair scenarios depending on whether an organism repairs single AAs or has to repair larger (up to whole) chunks of protein.
+
+We can use the following values for energy requirements of Racemization at 35˚C:
+
+Scenario 1: 5E-17 kJ/cell/yr
+
+Scenario 2: 2E-16 kJ/cell/yr
+
+Scenario 3: 9E-16 kJ/cell/yr
+
+Scenario 4: 5E-15 kJ/cell/yr
+
+To convert these to mass-specific power, we apply the following transformation:
+
+$$
+\begin{aligned}
+\text{Energy Turnover} \left(kJ \cdot cell^{-1} \cdot yr^{-1} \right)\\
+&\downarrow\\
+\frac{kJ}{cell \cdot yr} \times \frac{1000J}{kJ} &= \frac{J}{cell \cdot yr} \\
+&\downarrow \\
+\frac{J}{cell \cdot yr} \times \frac{cell}{gC} &= \frac{J}{gC \cdot yr} \\
+&\downarrow \\
+\frac{J}{gC \cdot yr} \times \frac{yr}{31536000 \: sec} &= \frac{J}{gC \cdot sec} \\
+&\downarrow \\
+&MSP \left(\frac{W}{gC} \right)
+\end{aligned}
+$$
+
+In other words, convert kJ to J, convert cell to carbon with a cell-to-carbon ratio, then convert yr to seconds, and bam, we've got MSP in Hoehler et al. terms (watts per gram carbon).
+
+The only unknown multiplication factor in this is cell-to-carbon ratio. But what cell-to-carbon ratio should we use? Let's just take the mean from our entire study as a rough estimate. These are order-of-magnitude differences in maintenance based on different AA repair and the amount of C shouldn't be a **major** difference.
+
+```{r}
+mean_cell_mass_fgC <- assim_data |> select(cell.C.fg) |> pull() |> mean()
+mean_cell_mass_gC <- mean_cell_mass_fgC * 1E-15 # convert from fg to g
+paste("The mean cell biomass measured in this study is", round(mean_cell_mass_fgC, 1), "fg or", mean_cell_mass_gC, "g C")
+
+
+```
+
+Tabulate Mark Lever's energy requirements and convert to MSP
+
+```{r}
+# have it be a function
+energy_turnover_to_MSP <- function(kJ_per_cell_yr, cell_mass_gC) {
+  J_per_cell_yr = kJ_per_cell_yr * 1000 # 1000 J per kJ
+  J_per_gC_yr = J_per_cell_yr * (1/cell_mass_gC)
+  W_gC = J_per_gC_yr * (1/31536000) # 31536000 seconds per year
+  return(W_gC)
+}
+
+## Scenario Values at 35˚C:
+# Scenario 1: 5E-17 kJ/cell/yr
+# 
+# Scenario 2: 2E-16 kJ/cell/yr
+# 
+# Scenario 3: 9E-16 kJ/cell/yr
+# 
+# Scenario 4: 5E-15 kJ/cell/yr
+
+lever_limits <- tibble(
+  scenario = c(1,2,3,4),
+  kJ_per_cell_yr = c(5E-17, 2E-16, 9E-16, 5E-15)
+) |> 
+  # add scenario values:
+  # apply the conversion we describe above:
+  mutate(
+    MSP_W_gC = energy_turnover_to_MSP(
+      kJ_per_cell_yr = kJ_per_cell_yr, cell_mass_gC = mean_cell_mass_gC
+    )
+  )
+```
+
+Read in Tori's data
+
+```{r}
+# Read in Tori's data and rename to match our column headers
+litreview <- readxl::read_excel("data/Hoehler_Fig3data.xlsx") |> 
+  rename(source = `...1`,
+         MSP.J_s_g = `MSP (W/gC)`,
+         mu_star.yr = `Biomass C Turnover, Observed (yr-1)`
+         ) |> 
+  filter(!is.na(source))
+```
+
+Plot our data
+
+```{r}
+# plot the standard error
+se <- function(vector) {
+  standard_error = sd(vector, na.rm = TRUE) / sqrt(length(vector))
+  return(standard_error)
+}
+
+
+assim_interval <- assim_metabolic |> 
+  filter(MSP.J_s_g > 0, mu_star.sec > 0) |> 
+  group_by(well, depth, amendment) |> 
+  summarize(
+    MSP.J_s_g_mn = mean(MSP.J_s_g, na.rm = TRUE),
+    MSP.J_s_g_lower = mean(MSP.J_s_g_lower, na.rm = TRUE),
+    MSP.J_s_g_upper = mean(MSP.J_s_g_upper, na.rm = TRUE),
+    mu_star.yr_mn = mean(mu_star.yr, na.rm = TRUE),
+    # calculate standard error for C turnover
+    mu_star.yr_lower = mean(mu_star.yr, na.rm = TRUE) - se(mu_star.yr),
+    mu_star.yr_upper = mean(mu_star.yr, na.rm = TRUE) + se(mu_star.yr)
+  )
+
+scenario1_MSP <- lever_limits |> filter(scenario == 1) |> select(MSP_W_gC) |> pull()
+scenario2_MSP <- lever_limits |> filter(scenario == 2) |> select(MSP_W_gC) |> pull()
+scenario3_MSP <- lever_limits |> filter(scenario == 3) |> select(MSP_W_gC) |> pull()
+scenario4_MSP <- lever_limits |> filter(scenario == 4) |> select(MSP_W_gC) |> pull()
+
+p_MSP_vs_mustar <- assim_interval |> 
+  ggplot(
+    aes(
+    )
+  ) +
+  # plot MSP limits from Lever et al. (2015)
+  annotate(geom = "rect", ymin = 1e-10, ymax = 1e10, xmin = 1e-10, alpha = 0.5,
+           xmax = scenario4_MSP, color = "black", fill = "#ba0000") +
+  annotate(geom = "rect", ymin = 1e-10, ymax = 1e10, xmin = 1e-10, alpha = 0.3,
+           xmax = scenario3_MSP, color = "black", fill = "#ba0000") +
+  annotate(geom = "rect", ymin = 1e-10, ymax = 1e10, xmin = 1e-10, alpha = 0.3,
+           xmax = scenario2_MSP, color = "black", fill = "#ba0000") +
+  annotate(geom = "rect", ymin = 1e-10, ymax = 1e10, xmin = 1e-10, alpha = 1,
+           xmax = scenario1_MSP, color = "black", fill = "#ba0000") +
+  # Plot lit review data:
+  geom_point(data = litreview,
+             aes(
+               x = MSP.J_s_g, y = mu_star.yr,
+               shape = group, color = group),
+             size = 2) +
+  # Plot this study
+  geom_pointrange(
+    aes(
+      x = MSP.J_s_g_mn,
+      xmin = MSP.J_s_g_lower,
+      xmax = MSP.J_s_g_upper,
+      y = mu_star.yr_mn,
+      fill = well
+    ),
+    shape = 21, color = "black"
+  ) +
+  geom_pointrange(
+    aes(
+      x = MSP.J_s_g_mn,
+      y = mu_star.yr_mn,
+      ymin = mu_star.yr_lower,
+      ymax = mu_star.yr_upper,
+      fill = well
+    ), shape = 21, color = "black"
+  ) +
+  # Scale axes and color
+  scale_x_log10(
+    #limits = c(1e-8, 1e2),
+    labels = scales::trans_format("log10", scales::math_format(10^.x)),
+    breaks = c(1e-8, 1e-6, 1e-4, 1e-2, 1e0, 1e2),
+    sec.axis = dup_axis(name = "")
+    ) +
+  scale_y_log10(
+    #limits = c(1e-6, 1e5),
+    labels = scales::trans_format("log10", scales::math_format(10^.x)),
+    breaks = c(1e-6, 1e-4, 1e-2, 1e0, 1e2, 1e4)
+    ) +
+  coord_cartesian(xlim = c(1e-8, 1e2), ylim = c(1e-6, 1e5)) +
+  ggthemes::scale_color_colorblind() +
+  scale_fill_manual(values = well_palette) +
+  scale_shape_manual(values = c(15, 16, 17, 18, 19, 4)) +
+  # Theme options:
+  labs(
+    x = "Mass-Specific Power (W /(g C))",
+    y = latex2exp::TeX("Mass-Specific Carbon Turnover Rate $(yr^{-1})$"),
+    fill = "Borehole",
+    shape = "Literature Source",
+    color = "Literature Source"
+  ) +
+  theme_bw() +
+  theme(
+    legend.background = element_rect(color = "black"),
+    axis.text = element_text(color = "black"),
+    panel.grid = element_blank(),
+    legend.position = "right",
+    legend.text = element_text(size = 7)
+  )
+
+p_MSP_vs_mustar
+
+# cowplot::save_plot(
+#   filename = "fig_output/MSP_mustar.pdf", plot = p_MSP_vs_mustar,
+#   base_height = 5, base_width = 10
+# )
+```
+
+# As a density:
+
+```{r}
+
+
+p_MSP_density <- assim_metabolic |> 
+  rename(group = well) |>
+  filter(MSP.J_s_g > 0) |>
+  ggplot(
+    aes(
+      x = MSP.J_s_g,
+      fill = group,
+      color = group,
+      y = group
+    )
+  ) +
+  scale_x_log10(
+    breaks = c(1e-8, 1e-6, 1e-4, 1e-2, 1e0, 1e2),
+    labels = scales::trans_format("log10", scales::math_format(10^.x))
+    ) +
+  annotate(geom = "rect", ymin = -Inf, ymax = Inf, xmin = 1e-10, alpha = 0.5,
+           xmax = scenario4_MSP, color = "black", fill = "#ba0000") +
+  annotate(geom = "rect", ymin = -Inf, ymax = Inf, xmin = 1e-10, alpha = 0.3,
+           xmax = scenario3_MSP, color = "black", fill = "#ba0000") +
+  annotate(geom = "rect", ymin = -Inf, ymax = Inf, xmin = 1e-10, alpha = 0.3,
+           xmax = scenario2_MSP, color = "black", fill = "#ba0000") +
+  annotate(geom = "rect", ymin = -Inf, ymax = Inf, xmin = 1e-10, alpha = 1,
+           xmax = scenario1_MSP, color = "black", fill = "#ba0000") +
+  ggridges::geom_density_ridges(color = "black") +
+  scale_fill_manual(values = well_palette) +
+  coord_cartesian(xlim = c(1e-8, 1e2)) +
+  theme_classic() +
+  labs(
+    x = "Mass-Specific Power (W /(g C))",
+    y = ""
+  ) +
+  theme(
+    axis.line.y = element_blank(),
+    #axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.title.y = element_blank(),
+    legend.position = "None"
+  )
+p_MSP_density
+
+p_litreview <- litreview |> 
+  ggplot(
+    aes(
+      x = MSP.J_s_g,
+      y = group,
+      fill = group,
+      color = group
+    )) +
+    scale_x_log10(
+    sec.axis = dup_axis(),
+    breaks = c(1e-8, 1e-6, 1e-4, 1e-2, 1e0, 1e2),
+    labels = scales::trans_format("log10", scales::math_format(10^.x))
+    ) +
+  geom_point(shape = 21, color = "black", size = 3) +
+  scale_fill_brewer(palette = "Set1") +
+  coord_cartesian(xlim = c(1e-8, 1e2)) +
+  theme_classic() +
+  theme(
+    legend.position = "None",
+    axis.line.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.title.y = element_blank(),
+    axis.title.x = element_blank(),
+    axis.line.x.bottom = element_blank(),
+    axis.text.x.bottom = element_blank(),
+    axis.ticks.x.bottom = element_blank()
+  )
+p_litreview
+
+p_MSP_dens_combined <- cowplot::plot_grid(
+  p_litreview, p_MSP_density, ncol = 1,
+  rel_heights = c(0.25, 0.75), align = "hv", axis = "tblr"
+  )
+p_MSP_dens_combined
+
+cowplot::save_plot(plot = p_MSP_dens_combined,
+                   base_height = 7, base_width = 10,
+                   filename = "fig_output/MSP_literature_density.pdf"
+                   )
+```
+
+# Export
+
+MSP
+
+```{r}
+
+
+mean_MSP <- assim_metabolic |> 
+  group_by(well, depth) |> 
+  summarize(
+    all = mean(MSP.J_s_g, na.rm = TRUE)
+  )
+
+mean_MSP_C <- assim_metabolic |> 
+  group_by(well, depth, amendment) |> 
+  summarize(mean_MSP_C = mean(MSP.J_s_g, na.rm = TRUE)) |> 
+  pivot_wider(names_from ="amendment", values_from = "mean_MSP_C") |> 
+  left_join(mean_MSP, by = c("well", "depth")) |> 
+  ungroup()
+
+gt_MSP <- mean_MSP_C |> 
+  gt::gt(groupname_col = "well") |> 
+  gt::cols_label(all = "mean") |> 
+  gt::fmt_scientific(columns = -depth) |> 
+  gt::tab_spanner(columns = c(bicarbonate, acetate, formate, all), 
+                  label = "MSP (W (g C){{^-1}}") |> 
+  gt::cols_align("center") |> 
+  gt::data_color(columns = all, palette = "viridis") |> 
+  gt::summary_rows(
+    columns = -depth,
+    fn = list("mean"),
+    fmt = list(~ gt::fmt_scientific(., decimals = 2))
+  )
+
+
+gt_MSP
+
+gt_MSP |> gt::gtsave("data_output/MSP.html")
+mean_MSP_C |> writexl::write_xlsx("data_output/MSP.xlsx")
 ```
