@@ -572,25 +572,26 @@ p_total_CH4_per_ml <- gc_henry |>
   scale_color_manual(values = amendment_palette) +
   scale_fill_manual(values = amendment_palette) +
   scale_shape_manual(values = c(21, 22, 23)) +
-  ggprism::annotation_ticks(sides = "trbl") +
   theme_bw() +
   labs(
     x = "Incubation time (days)",
     y = "CH4 produced (µmol/mL)"
   ) +
-  theme_om23() +
+  theme_bw() +
   theme(
     panel.grid = element_blank(),
-    aspect.ratio = 1
+    strip.background = element_rect(fill = "black"),
+    strip.text = element_text(color = "white", face = "bold"),
+    axis.text = element_text(color = "black")
   )
 p_total_CH4_per_ml
 
-cowplot::save_plot(
-  filename = "fig_output/p_total_CH4_per_ml.pdf",
-  plot = p_total_CH4_per_ml,
-  base_height = 10,
-  base_width = 10
-)
+# cowplot::save_plot(
+#   filename = "fig_output/CH4_timeseries.pdf",
+#   plot = p_total_CH4_per_ml,
+#   base_height = 7,
+#   base_width = 12
+# )
 ```
 
 # Calculate production rates
