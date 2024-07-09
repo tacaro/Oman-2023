@@ -154,14 +154,27 @@ om23 |>
   )) |> 
   arrange(well, depth) |> 
   select(-`ORP (mV)`, -condition) |> 
-  rename(Conductivity = `conductivity (µS/cm)`, Temperature = temp.C, `Depth to water table` = `depth to water table (m)`, Depth = depth, `Sampling Device` = sample_type) |>
-  gt() |> 
-  cols_units(
-    Conductivity = "µS cm^-1",
-    Temperature = ":degree:C",
-    `Depth to water table` = "mbs",
-    Depth = "mbs"
-  ) |> 
-  cols_align(align = "center") |> 
-  gtsave(filename = "data_output/field_data_export.html")
+    rename(Conductivity = `conductivity (µS/cm)`, Temperature = temp.C, `Depth to water table` = `depth to water table (m)`, Depth = depth, `Sampling Device` = sample_type) |>
+    gt() |> 
+    cols_units(
+      Conductivity = "µS cm^-1",
+      Temperature = ":degree:C",
+      `Depth to water table` = "mbs",
+      Depth = "mbs"
+    ) |> 
+    cols_align(align = "center") |> 
+  gt_om23
+  
+  gt_om23 |> gtsave(filename = "data_output/field_data_export.html")
+```
+
+```{r}
+gt_om23 <- om23 |> 
+  filter(!well %in% c("NSHQ14", "BA1D"), depth %in% c(20, 150, 250, 270)) |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
+  select(well, depth, date, pH, `conductivity (µS/cm)`) |> 
+  rename(cond_uscm = `conductivity (µS/cm)`) |> 
+  gt()
+
+gt_om23
 ```
