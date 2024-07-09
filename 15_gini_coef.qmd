@@ -177,8 +177,8 @@ p_gini <- assim_data |>
     )
 p_gini
 
-cowplot::save_plot(plot = p_gini, filename = "fig_output/gini.pdf",
-                   base_height = 7, base_width = 7)
+# cowplot::save_plot(plot = p_gini, filename = "fig_output/gini.pdf",
+#                    base_height = 7, base_width = 7)
 ```
 
 ### Gini Coeff for wells
@@ -188,12 +188,12 @@ well_gini <- assim_data |>
   group_by(well, depth) |> 
   summarize(
     gini = ineq::Gini(x = rC.fmol.d, corr = TRUE),
-    gini_str = paste("Gini =", round(gini, digits = 2)),
     mean_rC.fmol.d = mean(rC.fmol.d, na.rm = TRUE)
   ) |> 
   ungroup() |> 
   mutate(
-    xpos = 0.17,
+    gini_str = paste(well, "=", round(gini, digits = 2)),
+    xpos = 0.25,
     ypos = case_when(
       well == "BA1B" ~ 0.95,
       well == "BA4A" ~ 0.85,
@@ -230,7 +230,7 @@ p_well_gini <- assim_data |>
     geom = "path",
     linewidth = 0.75
   ) +
-  facet_grid(.~as.factor(depth_str)) +
+  facet_wrap(.~as.factor(depth_str), ncol = 1) +
   geom_abline() +
   scale_x_continuous(breaks = c(0, 0.5, 1), labels = c(0, 0.5, 1)) +
   scale_y_continuous(breaks = c(0, 0.5, 1), labels = c(0, 0.5, 1)) +
@@ -252,12 +252,13 @@ p_well_gini <- assim_data |>
     axis.text = element_text(color = "black"),
     strip.background = element_rect(fill = "black", color = "black"),
     strip.text = element_text(color = "white", face = "bold"),
-    panel.spacing = unit(0.25, "cm")
+    panel.spacing = unit(0.25, "cm"),
+    legend.position = "left"
     )
 p_well_gini
 
-cowplot::save_plot(plot = p_well_gini, filename = "fig_output/well_gini.pdf",
-                   base_height = 5, base_width = 8)
+# cowplot::save_plot(plot = p_well_gini, filename = "fig_output/well_gini.pdf",
+#                    base_height = 5, base_width = 8)
 ```
 
 ### Relation b/w Gini and average growth
@@ -274,59 +275,103 @@ p_gini_vs_assim <- assim_gini |>
   ) +
   scale_color_manual(values = well_palette) +
   scale_fill_manual(values = well_palette) +
-  geom_smooth(method = "lm", color = "black", linetype = "dashed") +
-  geom_point(aes(fill = well), color = "black", shape = 21) +
+  geom_smooth(method = "lm", color = NA, level = 0.95, fill = "#88dcf7", alpha = 1) +
+  geom_smooth(method = "lm", color = NA, level = 0.80, fill = "#49bce3", alpha = 1) +
+  geom_smooth(method = "lm", color = "black", level = 0.66, fill = "#00a3d9", alpha = 1) +
+  geom_point(aes(fill = well, shape = well), color = "black") +
+  scale_shape_manual(values = c(21, 22, 24)) +
   ggpmisc::stat_poly_eq(ggpmisc::use_label(c("eq", "R2")),
                         label.x = "left", label.y = "bottom") +
   geom_xsideboxplot(aes(y = well, color = well), orientation = "y", 
-                    outlier.shape = NA, show.legend = FALSE) +
-  geom_ysideboxplot(aes(x = well, color = well), orientation = "x", 
-                    outlier.shape = NA, show.legend = FALSE) +
-  coord_cartesian(ylim = c(0, 1), xlim = c(-6.2, -0.8), expand = FALSE) +
+                    outlier.shape = NA, show.legend = FALSE, size = 0.3) +
+  geom_ysideboxplot(aes(x = well, color = well), orientation = "x",
+                    outlier.shape = NA, show.legend = FALSE, size = 0.3) +
+  coord_cartesian(ylim = c(-0.05, 1.05), xlim = c(-6.2, -0.8), expand = FALSE) +
   theme_bw() +
   labs(
     x = latex2exp::TeX(
-      "log C assimilation $(fmol \\, cell^{-1} day^{-1}) $"
+      "log C assimilation $(fmol \\, C\\, cell^{-1} day^{-1}) $"
       ),
     y = "Gini Coefficient",
     color = "Borehole",
-    fill = "Borehole"
+    fill = "Borehole",
+    shape = "Borehole"
   ) +
   theme(
     panel.border = element_rect(fill = NA, color = "black", linewidth = 1),
     panel.grid = element_blank(),
     axis.text = element_text(color = "black", face = "bold"),
-    ggside.axis.text = element_blank(),
+    ggside.axis.text.x = element_text(angle = 90, size = 6),
+    ggside.axis.text.y = element_text(size = 6),
     ggside.axis.ticks = element_blank(),
-    aspect.ratio = 1
+    #aspect.ratio = 1,
+    ggside.panel.border = element_blank(),
+    legend.position = "inside",
+    legend.position.inside = c(0.1, 0.2),
+    legend.background = element_rect(color = "black", linewidth = 0.25)
   )
 p_gini_vs_assim
 
-cowplot::save_plot(plot = p_gini_vs_assim, filename = "fig_output/gini_vs_assim.pdf",
-                   base_height = 6,
-                   base_width = 6)
+# Extract the regression parameters:
+assim_gini.lm <- lm(
+  data = assim_gini |> mutate(log_mean_rC.fmol.d = log10(mean_rC.fmol.d)) ,
+  formula = log_mean_rC.fmol.d ~ gini
+)
+summary(assim_gini.lm)
+
+# cowplot::save_plot(plot = p_gini_vs_assim, filename = "fig_output/gini_vs_assim.pdf",
+#                    base_height = 6,
+#                    base_width = 6)
 ```
 
-### Distribution of Gini Coefs
+```         
+Multiple R-squared:  0.3765,    Adjusted R-squared:  0.3515 
+F-statistic: 15.09 on 1 and 25 DF,  p-value: 0.000665
+```
+
+# Combined plot
 
 ```{r}
+p_combined_gini_assim <- cowplot::plot_grid(
+  p_well_gini, p_gini_vs_assim,
+  rel_widths = c(0.3, 0.7), labels = c("A", "B")
+  )
+
+cowplot::save_plot(
+  plot = p_combined_gini_assim, filename = "fig_output/combined_gini_assim.pdf",
+  base_height = 6,
+  base_width = 10
+)
+```
+
+# Relationship with pH
+
+```{r}
+pH <- readxl::read_excel("data/OM23_field_data.xlsx") |> 
+  select(condition, pH)
+
 assim_gini |> 
+  mutate(log_mean_rC.fmol.d = log10(mean_rC.fmol.d)) |> 
+  mutate(condition = paste0(well, "-", depth)) |> 
+  left_join(pH, by = join_by(condition)) |>
   ggplot(
-    aes(
-      y = gini, 
-      x = well,
-      fill = well,
-      color = well
-    )
+    aes(x = pH, y = gini)
   ) +
-  geom_boxplot(fill = NA) +
-  scale_color_manual(values = well_palette) +
+  geom_point(aes(fill = well, shape = well), color = "black") +
+  scale_shape_manual(values = c(21, 22, 24)) +
   scale_fill_manual(values = well_palette) +
-  theme_om23() +
+  scale_color_manual(values = well_palette) +
+  geom_smooth(method = "lm", formula = "y~x") +
+  ggpmisc::stat_poly_eq(ggpmisc::use_label(c("eq", "R2")),
+                        label.x = "left", label.y = "bottom") +
+  geom_xsideboxplot(aes(y = well, color = well), orientation = "y", 
+                    outlier.shape = NA, show.legend = FALSE, size = 0.3) +
+  geom_ysideboxplot(aes(x = well, color = well), orientation = "x",
+                    outlier.shape = NA, show.legend = FALSE, size = 0.3) +
   labs(
-    x = "", y = "Gini Coefficient",
-    color = "Carbon Source", fill = "Carbon Source"
+    y = "Gini Coefficient"
   ) +
+  theme_bw() +
   theme(
     panel.grid = element_blank()
   )
