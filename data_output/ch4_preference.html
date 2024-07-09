@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<style>body{background-color:white;}</style>
+
+
+</head>
+<body>
+<div id="sforrmelhg" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
+  <style>#sforrmelhg table {
+  font-family: system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#sforrmelhg thead, #sforrmelhg tbody, #sforrmelhg tfoot, #sforrmelhg tr, #sforrmelhg td, #sforrmelhg th {
+  border-style: none;
+}
+
+#sforrmelhg p {
+  margin: 0;
+  padding: 0;
+}
+
+#sforrmelhg .gt_table {
+  display: table;
+  border-collapse: collapse;
+  line-height: normal;
+  margin-left: auto;
+  margin-right: auto;
+  color: #333333;
+  font-size: 16px;
+  font-weight: normal;
+  font-style: normal;
+  background-color: #FFFFFF;
+  width: auto;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #A8A8A8;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #A8A8A8;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+}
+
+#sforrmelhg .gt_caption {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+#sforrmelhg .gt_title {
+  color: #333333;
+  font-size: 125%;
+  font-weight: initial;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-color: #FFFFFF;
+  border-bottom-width: 0;
+}
+
+#sforrmelhg .gt_subtitle {
+  color: #333333;
+  font-size: 85%;
+  font-weight: initial;
+  padding-top: 3px;
+  padding-bottom: 5px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-color: #FFFFFF;
+  border-top-width: 0;
+}
+
+#sforrmelhg .gt_heading {
+  background-color: #FFFFFF;
+  text-align: center;
+  border-bottom-color: #FFFFFF;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#sforrmelhg .gt_bottom_border {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#sforrmelhg .gt_col_headings {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+}
+
+#sforrmelhg .gt_col_heading {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 6px;
+  padding-left: 5px;
+  padding-right: 5px;
+  overflow-x: hidden;
+}
+
+#sforrmelhg .gt_column_spanner_outer {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: normal;
+  text-transform: inherit;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+#sforrmelhg .gt_column_spanner_outer:first-child {
+  padding-left: 0;
+}
+
+#sforrmelhg .gt_column_spanner_outer:last-child {
+  padding-right: 0;
+}
+
+#sforrmelhg .gt_column_spanner {
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: bottom;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  overflow-x: hidden;
+  display: inline-block;
+  width: 100%;
+}
+
+#sforrmelhg .gt_spanner_row {
+  border-bottom-style: hidden;
+}
+
+#sforrmelhg .gt_group_heading {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  text-align: left;
+}
+
+#sforrmelhg .gt_empty_group_heading {
+  padding: 0.5px;
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  vertical-align: middle;
+}
+
+#sforrmelhg .gt_from_md > :first-child {
+  margin-top: 0;
+}
+
+#sforrmelhg .gt_from_md > :last-child {
+  margin-bottom: 0;
+}
+
+#sforrmelhg .gt_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  margin: 10px;
+  border-top-style: solid;
+  border-top-width: 1px;
+  border-top-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 1px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 1px;
+  border-right-color: #D3D3D3;
+  vertical-align: middle;
+  overflow-x: hidden;
+}
+
+#sforrmelhg .gt_stub {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#sforrmelhg .gt_stub_row_group {
+  color: #333333;
+  background-color: #FFFFFF;
+  font-size: 100%;
+  font-weight: initial;
+  text-transform: inherit;
+  border-right-style: solid;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+  padding-left: 5px;
+  padding-right: 5px;
+  vertical-align: top;
+}
+
+#sforrmelhg .gt_row_group_first td {
+  border-top-width: 2px;
+}
+
+#sforrmelhg .gt_row_group_first th {
+  border-top-width: 2px;
+}
+
+#sforrmelhg .gt_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#sforrmelhg .gt_first_summary_row {
+  border-top-style: solid;
+  border-top-color: #D3D3D3;
+}
+
+#sforrmelhg .gt_first_summary_row.thick {
+  border-top-width: 2px;
+}
+
+#sforrmelhg .gt_last_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#sforrmelhg .gt_grand_summary_row {
+  color: #333333;
+  background-color: #FFFFFF;
+  text-transform: inherit;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#sforrmelhg .gt_first_grand_summary_row {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-top-style: double;
+  border-top-width: 6px;
+  border-top-color: #D3D3D3;
+}
+
+#sforrmelhg .gt_last_grand_summary_row_top {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 5px;
+  padding-right: 5px;
+  border-bottom-style: double;
+  border-bottom-width: 6px;
+  border-bottom-color: #D3D3D3;
+}
+
+#sforrmelhg .gt_striped {
+  background-color: rgba(128, 128, 128, 0.05);
+}
+
+#sforrmelhg .gt_table_body {
+  border-top-style: solid;
+  border-top-width: 2px;
+  border-top-color: #D3D3D3;
+  border-bottom-style: solid;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+}
+
+#sforrmelhg .gt_footnotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#sforrmelhg .gt_footnote {
+  margin: 0px;
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#sforrmelhg .gt_sourcenotes {
+  color: #333333;
+  background-color: #FFFFFF;
+  border-bottom-style: none;
+  border-bottom-width: 2px;
+  border-bottom-color: #D3D3D3;
+  border-left-style: none;
+  border-left-width: 2px;
+  border-left-color: #D3D3D3;
+  border-right-style: none;
+  border-right-width: 2px;
+  border-right-color: #D3D3D3;
+}
+
+#sforrmelhg .gt_sourcenote {
+  font-size: 90%;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+#sforrmelhg .gt_left {
+  text-align: left;
+}
+
+#sforrmelhg .gt_center {
+  text-align: center;
+}
+
+#sforrmelhg .gt_right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#sforrmelhg .gt_font_normal {
+  font-weight: normal;
+}
+
+#sforrmelhg .gt_font_bold {
+  font-weight: bold;
+}
+
+#sforrmelhg .gt_font_italic {
+  font-style: italic;
+}
+
+#sforrmelhg .gt_super {
+  font-size: 65%;
+}
+
+#sforrmelhg .gt_footnote_marks {
+  font-size: 75%;
+  vertical-align: 0.4em;
+  position: initial;
+}
+
+#sforrmelhg .gt_asterisk {
+  font-size: 100%;
+  vertical-align: 0;
+}
+
+#sforrmelhg .gt_indent_1 {
+  text-indent: 5px;
+}
+
+#sforrmelhg .gt_indent_2 {
+  text-indent: 10px;
+}
+
+#sforrmelhg .gt_indent_3 {
+  text-indent: 15px;
+}
+
+#sforrmelhg .gt_indent_4 {
+  text-indent: 20px;
+}
+
+#sforrmelhg .gt_indent_5 {
+  text-indent: 25px;
+}
+</style>
+  <table class="gt_table" data-quarto-disable-processing="false" data-quarto-bootstrap="false">
+  <thead>
+    
+    <tr class="gt_col_headings gt_spanner_row">
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="2" colspan="1" scope="col" id="depth">depth</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_left" rowspan="2" colspan="1" scope="col" id="amendment">amendment</th>
+      <th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="1" scope="col" id="Carbon Preference">
+        <span class="gt_column_spanner">Carbon Preference</span>
+      </th>
+      <th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="2" scope="colgroup" id="CH&lt;span style=&quot;white-space:nowrap;&quot;&gt;&lt;sub&gt;4&lt;/sub&gt;&lt;/span&gt; Production (µmol)">
+        <span class="gt_column_spanner">CH<span style="white-space:nowrap;"><sub>4</sub></span> Production (µmol)</span>
+      </th>
+      <th class="gt_center gt_columns_top_border gt_column_spanner_outer" rowspan="1" colspan="2" scope="colgroup" id="CH&lt;span style=&quot;white-space:nowrap;&quot;&gt;&lt;sub&gt;4&lt;/sub&gt;&lt;/span&gt; Production Rate (µmol / day)">
+        <span class="gt_column_spanner">CH<span style="white-space:nowrap;"><sub>4</sub></span> Production Rate (µmol / day)</span>
+      </th>
+    </tr>
+    <tr class="gt_col_headings">
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="percent_ch4_from_label">percent_ch4_from_label</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="umol_total">umol_total</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="umol_total_SIP">umol_total_SIP</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="umol_per_ml_per_day">umol_per_ml_per_day</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="umol_per_ml_per_day_SIP">umol_per_ml_per_day_SIP</th>
+    </tr>
+  </thead>
+  <tbody class="gt_table_body">
+    <tr class="gt_group_heading_row">
+      <th colspan="7" class="gt_group_heading" style="background-color: #DA3B26; color: #FFFFFF;" scope="colgroup" id="BA1B">BA1B</th>
+    </tr>
+    <tr class="gt_row_group_first"><td headers="BA1B  depth" class="gt_row gt_right">20</td>
+<td headers="BA1B  amendment" class="gt_row gt_left">acetate</td>
+<td headers="BA1B  percent_ch4_from_label" class="gt_row gt_right" style="background-color: #FDC7B0; color: #000000;">21.9%</td>
+<td headers="BA1B  umol_total" class="gt_row gt_right">42.245409</td>
+<td headers="BA1B  umol_total_SIP" class="gt_row gt_right">9.26616622</td>
+<td headers="BA1B  umol_per_ml_per_day" class="gt_row gt_right">0.0074114753</td>
+<td headers="BA1B  umol_per_ml_per_day_SIP" class="gt_row gt_right">1.625643e-03</td></tr>
+    <tr><td headers="BA1B  depth" class="gt_row gt_right">150</td>
+<td headers="BA1B  amendment" class="gt_row gt_left">acetate</td>
+<td headers="BA1B  percent_ch4_from_label" class="gt_row gt_right" style="background-color: #FFEDE5; color: #000000;">5.6%</td>
+<td headers="BA1B  umol_total" class="gt_row gt_right">71.898917</td>
+<td headers="BA1B  umol_total_SIP" class="gt_row gt_right">3.99824905</td>
+<td headers="BA1B  umol_per_ml_per_day" class="gt_row gt_right">0.0126138451</td>
+<td headers="BA1B  umol_per_ml_per_day_SIP" class="gt_row gt_right">7.014472e-04</td></tr>
+    <tr><td headers="BA1B  depth" class="gt_row gt_right">250</td>
+<td headers="BA1B  amendment" class="gt_row gt_left">acetate</td>
+<td headers="BA1B  percent_ch4_from_label" class="gt_row gt_right" style="background-color: #FEE5D9; color: #000000;">10.6%</td>
+<td headers="BA1B  umol_total" class="gt_row gt_right">72.819741</td>
+<td headers="BA1B  umol_total_SIP" class="gt_row gt_right">7.70534259</td>
+<td headers="BA1B  umol_per_ml_per_day" class="gt_row gt_right">0.0127753932</td>
+<td headers="BA1B  umol_per_ml_per_day_SIP" class="gt_row gt_right">1.351814e-03</td></tr>
+    <tr><td headers="BA1B  depth" class="gt_row gt_right">20</td>
+<td headers="BA1B  amendment" class="gt_row gt_left">bicarbonate</td>
+<td headers="BA1B  percent_ch4_from_label" class="gt_row gt_right" style="background-color: #800411; color: #FFFFFF;">94.9%</td>
+<td headers="BA1B  umol_total" class="gt_row gt_right">182.627943</td>
+<td headers="BA1B  umol_total_SIP" class="gt_row gt_right">173.28032234</td>
+<td headers="BA1B  umol_per_ml_per_day" class="gt_row gt_right">0.0320399900</td>
+<td headers="BA1B  umol_per_ml_per_day_SIP" class="gt_row gt_right">3.040006e-02</td></tr>
+    <tr><td headers="BA1B  depth" class="gt_row gt_right">150</td>
+<td headers="BA1B  amendment" class="gt_row gt_left">bicarbonate</td>
+<td headers="BA1B  percent_ch4_from_label" class="gt_row gt_right" style="background-color: #9A0C14; color: #FFFFFF;">89.7%</td>
+<td headers="BA1B  umol_total" class="gt_row gt_right">102.330661</td>
+<td headers="BA1B  umol_total_SIP" class="gt_row gt_right">91.81631842</td>
+<td headers="BA1B  umol_per_ml_per_day" class="gt_row gt_right">0.0179527475</td>
+<td headers="BA1B  umol_per_ml_per_day_SIP" class="gt_row gt_right">1.610813e-02</td></tr>
+    <tr><td headers="BA1B  depth" class="gt_row gt_right">250</td>
+<td headers="BA1B  amendment" class="gt_row gt_left">bicarbonate</td>
+<td headers="BA1B  percent_ch4_from_label" class="gt_row gt_right" style="background-color: #7C0411; color: #FFFFFF;">95.7%</td>
+<td headers="BA1B  umol_total" class="gt_row gt_right">205.637628</td>
+<td headers="BA1B  umol_total_SIP" class="gt_row gt_right">196.71708746</td>
+<td headers="BA1B  umol_per_ml_per_day" class="gt_row gt_right">0.0360767768</td>
+<td headers="BA1B  umol_per_ml_per_day_SIP" class="gt_row gt_right">3.451177e-02</td></tr>
+    <tr><td headers="BA1B  depth" class="gt_row gt_right">20</td>
+<td headers="BA1B  amendment" class="gt_row gt_left">formate</td>
+<td headers="BA1B  percent_ch4_from_label" class="gt_row gt_right" style="background-color: #FFF3ED; color: #000000;">2.2%</td>
+<td headers="BA1B  umol_total" class="gt_row gt_right">52.105348</td>
+<td headers="BA1B  umol_total_SIP" class="gt_row gt_right">1.12213466</td>
+<td headers="BA1B  umol_per_ml_per_day" class="gt_row gt_right">0.0091412890</td>
+<td headers="BA1B  umol_per_ml_per_day_SIP" class="gt_row gt_right">1.968657e-04</td></tr>
+    <tr><td headers="BA1B  depth" class="gt_row gt_right">150</td>
+<td headers="BA1B  amendment" class="gt_row gt_left">formate</td>
+<td headers="BA1B  percent_ch4_from_label" class="gt_row gt_right" style="background-color: #FFF4EF; color: #000000;">1.7%</td>
+<td headers="BA1B  umol_total" class="gt_row gt_right">74.100751</td>
+<td headers="BA1B  umol_total_SIP" class="gt_row gt_right">1.22538377</td>
+<td headers="BA1B  umol_per_ml_per_day" class="gt_row gt_right">0.0130001317</td>
+<td headers="BA1B  umol_per_ml_per_day_SIP" class="gt_row gt_right">2.149796e-04</td></tr>
+    <tr><td headers="BA1B  depth" class="gt_row gt_right">250</td>
+<td headers="BA1B  amendment" class="gt_row gt_left">formate</td>
+<td headers="BA1B  percent_ch4_from_label" class="gt_row gt_right" style="background-color: #FFF3EE; color: #000000;">2.1%</td>
+<td headers="BA1B  umol_total" class="gt_row gt_right">89.830842</td>
+<td headers="BA1B  umol_total_SIP" class="gt_row gt_right">1.89505100</td>
+<td headers="BA1B  umol_per_ml_per_day" class="gt_row gt_right">0.0157597968</td>
+<td headers="BA1B  umol_per_ml_per_day_SIP" class="gt_row gt_right">3.324651e-04</td></tr>
+    <tr class="gt_group_heading_row">
+      <th colspan="7" class="gt_group_heading" style="background-color: #479FF8; color: #FFFFFF;" scope="colgroup" id="BA4A">BA4A</th>
+    </tr>
+    <tr class="gt_row_group_first"><td headers="BA4A  depth" class="gt_row gt_right">20</td>
+<td headers="BA4A  amendment" class="gt_row gt_left">acetate</td>
+<td headers="BA4A  percent_ch4_from_label" class="gt_row gt_right" style="background-color: #FFF3EE; color: #000000;">2.1%</td>
+<td headers="BA4A  umol_total" class="gt_row gt_right">70.357472</td>
+<td headers="BA4A  umol_total_SIP" class="gt_row gt_right">1.48573120</td>
+<td headers="BA4A  umol_per_ml_per_day" class="gt_row gt_right">0.0123434162</td>
+<td headers="BA4A  umol_per_ml_per_day_SIP" class="gt_row gt_right">2.606546e-04</td></tr>
+    <tr><td headers="BA4A  depth" class="gt_row gt_right">150</td>
+<td headers="BA4A  amendment" class="gt_row gt_left">acetate</td>
+<td headers="BA4A  percent_ch4_from_label" class="gt_row gt_right" style="background-color: #FFF4EE; color: #000000;">1.9%</td>
+<td headers="BA4A  umol_total" class="gt_row gt_right">42.014363</td>
+<td headers="BA4A  umol_total_SIP" class="gt_row gt_right">0.78610031</td>
+<td headers="BA4A  umol_per_ml_per_day" class="gt_row gt_right">0.0073709408</td>
+<td headers="BA4A  umol_per_ml_per_day_SIP" class="gt_row gt_right">1.379123e-04</td></tr>
+    <tr><td headers="BA4A  depth" class="gt_row gt_right">270</td>
+<td headers="BA4A  amendment" class="gt_row gt_left">acetate</td>
+<td headers="BA4A  percent_ch4_from_label" class="gt_row gt_right" style="background-color: #FFF5F0; color: #000000;">1.2%</td>
+<td headers="BA4A  umol_total" class="gt_row gt_right">60.617118</td>
+<td headers="BA4A  umol_total_SIP" class="gt_row gt_right">0.72226316</td>
+<td headers="BA4A  umol_per_ml_per_day" class="gt_row gt_right">0.0106345821</td>
+<td headers="BA4A  umol_per_ml_per_day_SIP" class="gt_row gt_right">1.267128e-04</td></tr>
+    <tr><td headers="BA4A  depth" class="gt_row gt_right">20</td>
+<td headers="BA4A  amendment" class="gt_row gt_left">bicarbonate</td>
+<td headers="BA4A  percent_ch4_from_label" class="gt_row gt_right" style="background-color: #940A13; color: #FFFFFF;">90.9%</td>
+<td headers="BA4A  umol_total" class="gt_row gt_right">105.028594</td>
+<td headers="BA4A  umol_total_SIP" class="gt_row gt_right">95.52335426</td>
+<td headers="BA4A  umol_per_ml_per_day" class="gt_row gt_right">0.0184260691</td>
+<td headers="BA4A  umol_per_ml_per_day_SIP" class="gt_row gt_right">1.675848e-02</td></tr>
+    <tr><td headers="BA4A  depth" class="gt_row gt_right">150</td>
+<td headers="BA4A  amendment" class="gt_row gt_left">bicarbonate</td>
+<td headers="BA4A  percent_ch4_from_label" class="gt_row gt_right" style="background-color: #67000D; color: #FFFFFF;">100.0%</td>
+<td headers="BA4A  umol_total" class="gt_row gt_right">74.499963</td>
+<td headers="BA4A  umol_total_SIP" class="gt_row gt_right">74.49996255</td>
+<td headers="BA4A  umol_per_ml_per_day" class="gt_row gt_right">0.0130701689</td>
+<td headers="BA4A  umol_per_ml_per_day_SIP" class="gt_row gt_right">1.307017e-02</td></tr>
+    <tr><td headers="BA4A  depth" class="gt_row gt_right">270</td>
+<td headers="BA4A  amendment" class="gt_row gt_left">bicarbonate</td>
+<td headers="BA4A  percent_ch4_from_label" class="gt_row gt_right" style="background-color: #8F0813; color: #FFFFFF;">91.9%</td>
+<td headers="BA4A  umol_total" class="gt_row gt_right">85.032992</td>
+<td headers="BA4A  umol_total_SIP" class="gt_row gt_right">78.13236419</td>
+<td headers="BA4A  umol_per_ml_per_day" class="gt_row gt_right">0.0149180689</td>
+<td headers="BA4A  umol_per_ml_per_day_SIP" class="gt_row gt_right">1.370743e-02</td></tr>
+    <tr><td headers="BA4A  depth" class="gt_row gt_right">20</td>
+<td headers="BA4A  amendment" class="gt_row gt_left">formate</td>
+<td headers="BA4A  percent_ch4_from_label" class="gt_row gt_right" style="background-color: #FFF3ED; color: #000000;">2.3%</td>
+<td headers="BA4A  umol_total" class="gt_row gt_right">95.924265</td>
+<td headers="BA4A  umol_total_SIP" class="gt_row gt_right">2.20691513</td>
+<td headers="BA4A  umol_per_ml_per_day" class="gt_row gt_right">0.0168288184</td>
+<td headers="BA4A  umol_per_ml_per_day_SIP" class="gt_row gt_right">3.871781e-04</td></tr>
+    <tr><td headers="BA4A  depth" class="gt_row gt_right">150</td>
+<td headers="BA4A  amendment" class="gt_row gt_left">formate</td>
+<td headers="BA4A  percent_ch4_from_label" class="gt_row gt_right" style="background-color: #FFF4EE; color: #000000;">1.9%</td>
+<td headers="BA4A  umol_total" class="gt_row gt_right">38.378420</td>
+<td headers="BA4A  umol_total_SIP" class="gt_row gt_right">0.74643199</td>
+<td headers="BA4A  umol_per_ml_per_day" class="gt_row gt_right">0.0067330562</td>
+<td headers="BA4A  umol_per_ml_per_day_SIP" class="gt_row gt_right">1.309530e-04</td></tr>
+    <tr><td headers="BA4A  depth" class="gt_row gt_right">270</td>
+<td headers="BA4A  amendment" class="gt_row gt_left">formate</td>
+<td headers="BA4A  percent_ch4_from_label" class="gt_row gt_right" style="background-color: #FFF4EE; color: #000000;">1.9%</td>
+<td headers="BA4A  umol_total" class="gt_row gt_right">50.251398</td>
+<td headers="BA4A  umol_total_SIP" class="gt_row gt_right">0.94273263</td>
+<td headers="BA4A  umol_per_ml_per_day" class="gt_row gt_right">0.0088160347</td>
+<td headers="BA4A  umol_per_ml_per_day_SIP" class="gt_row gt_right">1.653917e-04</td></tr>
+    <tr class="gt_group_heading_row">
+      <th colspan="7" class="gt_group_heading" style="background-color: #004D01; color: #FFFFFF;" scope="colgroup" id="BA3A">BA3A</th>
+    </tr>
+    <tr class="gt_row_group_first"><td headers="BA3A  depth" class="gt_row gt_right">20</td>
+<td headers="BA3A  amendment" class="gt_row gt_left">acetate</td>
+<td headers="BA3A  percent_ch4_from_label" class="gt_row gt_right" style="background-color: #FFEAE1; color: #000000;">7.4%</td>
+<td headers="BA3A  umol_total" class="gt_row gt_right">58.031406</td>
+<td headers="BA3A  umol_total_SIP" class="gt_row gt_right">4.28032897</td>
+<td headers="BA3A  umol_per_ml_per_day" class="gt_row gt_right">0.0049599492</td>
+<td headers="BA3A  umol_per_ml_per_day_SIP" class="gt_row gt_right">3.658401e-04</td></tr>
+    <tr><td headers="BA3A  depth" class="gt_row gt_right">150</td>
+<td headers="BA3A  amendment" class="gt_row gt_left">acetate</td>
+<td headers="BA3A  percent_ch4_from_label" class="gt_row gt_right" style="background-color: #FFF5F0; color: #000000;">1.1%</td>
+<td headers="BA3A  umol_total" class="gt_row gt_right">7.518890</td>
+<td headers="BA3A  umol_total_SIP" class="gt_row gt_right">0.08584213</td>
+<td headers="BA3A  umol_per_ml_per_day" class="gt_row gt_right">0.0006426402</td>
+<td headers="BA3A  umol_per_ml_per_day_SIP" class="gt_row gt_right">7.336934e-06</td></tr>
+    <tr><td headers="BA3A  depth" class="gt_row gt_right">270</td>
+<td headers="BA3A  amendment" class="gt_row gt_left">acetate</td>
+<td headers="BA3A  percent_ch4_from_label" class="gt_row gt_right" style="background-color: #FFF5F0; color: #000000;">1.1%</td>
+<td headers="BA3A  umol_total" class="gt_row gt_right">8.501142</td>
+<td headers="BA3A  umol_total_SIP" class="gt_row gt_right">0.09597702</td>
+<td headers="BA3A  umol_per_ml_per_day" class="gt_row gt_right">0.0007265934</td>
+<td headers="BA3A  umol_per_ml_per_day_SIP" class="gt_row gt_right">8.203164e-06</td></tr>
+    <tr><td headers="BA3A  depth" class="gt_row gt_right">20</td>
+<td headers="BA3A  amendment" class="gt_row gt_left">bicarbonate</td>
+<td headers="BA3A  percent_ch4_from_label" class="gt_row gt_right" style="background-color: #BD151A; color: #FFFFFF;">79.7%</td>
+<td headers="BA3A  umol_total" class="gt_row gt_right">60.720749</td>
+<td headers="BA3A  umol_total_SIP" class="gt_row gt_right">48.39777388</td>
+<td headers="BA3A  umol_per_ml_per_day" class="gt_row gt_right">0.0051898076</td>
+<td headers="BA3A  umol_per_ml_per_day_SIP" class="gt_row gt_right">4.136562e-03</td></tr>
+    <tr><td headers="BA3A  depth" class="gt_row gt_right">150</td>
+<td headers="BA3A  amendment" class="gt_row gt_left">bicarbonate</td>
+<td headers="BA3A  percent_ch4_from_label" class="gt_row gt_right" style="background-color: #FFF3ED; color: #000000;">2.5%</td>
+<td headers="BA3A  umol_total" class="gt_row gt_right">7.567570</td>
+<td headers="BA3A  umol_total_SIP" class="gt_row gt_right">0.18952641</td>
+<td headers="BA3A  umol_per_ml_per_day" class="gt_row gt_right">0.0006468008</td>
+<td headers="BA3A  umol_per_ml_per_day_SIP" class="gt_row gt_right">1.619884e-05</td></tr>
+    <tr><td headers="BA3A  depth" class="gt_row gt_right">270</td>
+<td headers="BA3A  amendment" class="gt_row gt_left">bicarbonate</td>
+<td headers="BA3A  percent_ch4_from_label" class="gt_row gt_right" style="background-color: #FFF4EE; color: #000000;">1.8%</td>
+<td headers="BA3A  umol_total" class="gt_row gt_right">6.413297</td>
+<td headers="BA3A  umol_total_SIP" class="gt_row gt_right">0.11639949</td>
+<td headers="BA3A  umol_per_ml_per_day" class="gt_row gt_right">0.0005481450</td>
+<td headers="BA3A  umol_per_ml_per_day_SIP" class="gt_row gt_right">9.948674e-06</td></tr>
+    <tr><td headers="BA3A  depth" class="gt_row gt_right">20</td>
+<td headers="BA3A  amendment" class="gt_row gt_left">formate</td>
+<td headers="BA3A  percent_ch4_from_label" class="gt_row gt_right" style="background-color: #FFEAE0; color: #000000;">7.5%</td>
+<td headers="BA3A  umol_total" class="gt_row gt_right">81.729770</td>
+<td headers="BA3A  umol_total_SIP" class="gt_row gt_right">6.13811260</td>
+<td headers="BA3A  umol_per_ml_per_day" class="gt_row gt_right">0.0069854504</td>
+<td headers="BA3A  umol_per_ml_per_day_SIP" class="gt_row gt_right">5.246250e-04</td></tr>
+    <tr><td headers="BA3A  depth" class="gt_row gt_right">150</td>
+<td headers="BA3A  amendment" class="gt_row gt_left">formate</td>
+<td headers="BA3A  percent_ch4_from_label" class="gt_row gt_right" style="background-color: #FFF4EE; color: #000000;">1.8%</td>
+<td headers="BA3A  umol_total" class="gt_row gt_right">7.448137</td>
+<td headers="BA3A  umol_total_SIP" class="gt_row gt_right">0.13731638</td>
+<td headers="BA3A  umol_per_ml_per_day" class="gt_row gt_right">0.0006365929</td>
+<td headers="BA3A  umol_per_ml_per_day_SIP" class="gt_row gt_right">1.173644e-05</td></tr>
+    <tr><td headers="BA3A  depth" class="gt_row gt_right">270</td>
+<td headers="BA3A  amendment" class="gt_row gt_left">formate</td>
+<td headers="BA3A  percent_ch4_from_label" class="gt_row gt_right" style="background-color: #FFF5F0; color: #000000;">1.1%</td>
+<td headers="BA3A  umol_total" class="gt_row gt_right">6.030238</td>
+<td headers="BA3A  umol_total_SIP" class="gt_row gt_right">0.06788618</td>
+<td headers="BA3A  umol_per_ml_per_day" class="gt_row gt_right">0.0005154049</td>
+<td headers="BA3A  umol_per_ml_per_day_SIP" class="gt_row gt_right">5.802237e-06</td></tr>
+  </tbody>
+  
+  
+</table>
+</div>
+</body>
+</html>
