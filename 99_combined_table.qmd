@@ -1,0 +1,59 @@
+---
+title: "Combined Table"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+This is a brief script intended for tabulating all the key geochemical and biological parameters of the Oman wells. This will serve as a "table 1" of the manuscript.
+
+## Setup
+
+```{r}
+library(tidyverse)
+library(gt)
+```
+
+```{r}
+cell_counts <- readxl::read_excel("data_output/cell_counts.xlsx") |> 
+  select(well, depth, cells_per_ml)
+
+field_data <- readxl::read_excel("data_output/field_data.xlsx") |> 
+  select(well, `sampling depth`, pH, `conductivity (µS/cm)`) |> 
+  rename(cond_uscm = `conductivity (µS/cm)`,
+         depth = `sampling depth`)
+
+anion <- readxl::read_excel("data_output/anion_data.xlsx") |> 
+  select(-sample_id) |> 
+  select(c(well, depth), starts_with(c("Nitrate", "Bromide", "Sulfate", "Phosphate")))
+
+cation <- readxl::read_excel("data_output/cation_data.xlsx") |> 
+  select(-sample_id) |> 
+  select(well, depth, starts_with(c("Fe", "Mg", "Ca")))
+
+om23_joined <- cell_counts |> 
+  left_join(field_data, by = c("well", "depth")) |> 
+  left_join(anion, by = c("well", "depth")) |> 
+  left_join(cation, by = c("well", "depth"))
+```
+
+Pivot it wider
+
+```{r}
+gt_om23 <- om23_joined |> 
+  mutate(depth_str = paste(depth, "m"),
+         depth_str = factor(depth_str, levels =c("20 m", "150 m", "250 m", "270 m"))) |>
+  arrange(depth_str) |> 
+  gt(rowname_col = "depth_str", groupname_col = "well") |> 
+  cols_label(
+    depth = "Sampling Depth (mbs)",
+    cells_per_ml = "Cells per mL",
+    cond_uscm = "Electrical Conductivity (µS/cm)",
+    ) |> 
+  fmt_number(columns = -c(pH), decimals = 2) |> 
+  fmt_scientific(columns = cells_per_ml) |> 
+  fmt_number(columns = cond_uscm, decimals = 0)
+
+gt_om23
+```
