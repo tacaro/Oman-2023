@@ -12,31 +12,115 @@ editor_options:
 library(tidyverse)
 ```
 
-# Calculations
-
-Henry's law is given by
+Put simply, Henry's law relates the partial pressure of a gas to the concentration of that gas in water.
 
 $$
 C = kP
 $$
 
-where $C$ is the concentration of a dissolved gas, $k$ is Henry's law constant for that gas, and $P$ is the partial pressure of this gas.
+Where C is the concentration of a dissolved gas k is the Henry's coefficient for that gas and P is the partial pressure of that gas.
 
-Our OM23 incubations were set to 2 atm of pure molecular hydrgoen $H_2$.
+For example: what is the concentration of neon in water at 25˚C if its partial pressure is 0.1 atm? the Henry's coefficient of Ne at 25˚C is 4.65E-4 M/atm.
 
-```{r}
-# Define a Henry's law function
-# where P is partial pressure
-calculate_conc <- function(k, P) {
-  return(k*P)
-}
-```
+$$
+\begin{aligned}
+C &= kP \\
+C &= 4.65\times10^{-4} \: M\cdot atm^{-1} \times 0.1 \; atm \\
+C &= 0.0000465 \: M
+\end{aligned}
+$$
 
-Henry's law for H2 in water at 25C is $8.13 \times 10^{-4}$ M\\atm.
+However, many folks don't appreciate that a Henry's constant is not a true constant, but instead has a significant non-linear temperature dependence. Ignoring this dependence can lead to inaccuracies.
 
-```{r}
-h2_h_m_atm <- 8.13E-4
-h2.M <- calculate_conc(k = h2_h_m_atm, P = 2)
+### Thermodynamic basics
 
-h2_um <- h2.M * 1000
-```
+In a given solvent, the Henry's constant $H$ for the solute $i$ is defined as an infinite dilution limit:
+
+$$
+H_i = \lim_{x_i\to 0} \frac{f_i}{x_i}
+$$
+
+where $f_i$ and $x_i$ are the \[\[Fugacity\]\] and mole fraction of the solute, respectively. So, in plain language: the Henry's constant is defined as the \[\[Fugacity\]\] of $i$ as the mole fraction becomes vanishingly small. Since real systems never reach the limit of infinite dilution, most applications of Henry's law involve the use of this equation without the infinite-dilution limit. The assumption that f/x remains constant for positive values of x is reasonable for many applications, where the goal is to describe the solubility/volatility of small amounts of a substance in water.
+
+### Temperature dependence
+
+[H is not constant with respect to temperature.](https://tsapps.nist.gov/publication/get_pdf.cfm?pub_id=50449#:~:text=The%20Henry's%20constant%20typically%20increases,the%20specific%20solute%2Dsolvent%20pair) It typically increases with temperature at low temperatures, reaches a maximum, then decreases at high temperatures. As a rule of thumb, the maximum tends to increase with increasing solute critical temp for a given solvent.
+
+When the temperature of a system changes, H also changes. This is generally described via the Van't Hoff equation:
+
+$$
+\frac{d \: ln H}{d(1/T)} = \frac{-\Delta_{sol}H}{R}
+$$
+
+where $\Delta_{sol}$ H is the enthalpy of dissolution. NOTE that the letter H in this refers to enthalpy NOT Henry's law constant. Integrating this equation and creating an expression based on H˚ at the reference temperature T˚ = 298.15 K yields:
+
+$$
+H(T) = H^{\circ} exp \left[\frac{-\Delta_{sol}}{R} \left(\frac{1}{T} - \frac{1}{T^{\circ}} \right)       \right]
+$$
+
+### Molecular Hydrogen
+
+We want to calculate the Henry's constant of $H_2$ at 35˚C (308K.15). The temperature dependence of $H_2$, according to [Fernandez-Prini et al. 2003 (reviewed by R. Sander 2023)](https://henrys-law.org/henry/casrn/1333-74-0), is $H^{cp}_s T$ = `530` and the Henry's law constant at reference temperature (298.15 K) is `7.8E-6` mol/m3Pa:
+
+$$
+\begin{aligned} 
+H(308K) &= H^{\circ} exp \left[\frac{-\Delta_{sol}}{R} \left(\frac{1}{T} - \frac{1}{T^{\circ}} \right)       \right] \\
+
+H(308K) &= (7.8\times 10^{-6}) \cdot exp \left[ 530 \left( \frac{1}{308.15} - \frac{1}{298.15}\right)\right] \\
+
+H(308K) &= (7.8\times 10^{-6}) \cdot e^{−0.0576871234912}  \\
+
+H(308K) &= 0.00000736277286834 \: [mol / m^3Pa]
+\end{aligned}
+$$
+
+> Does this make sense? Yes. A higher temperature means that a gas is less soluble. A lower Henry's law coefficient (7.3E-6 vs. 7.8E-6) indicates a less soluble gas.
+
+Our calculated Henry's coefficient is $H(308K) = 7.3\times 10^{-6} \: [mol / m^3Pa]$ which is equivalent to $H(308K) = 7.3\times 10^{-6} \: [M/Pa]$ . We convert this to $[mol / atm]$ with the conversion factor 101.325 Pa/atm:
+
+$$
+H(308K) = 0.00000736277286834 \: [M/Pa] \times \frac{101.325 \: Pa}{1 \: atm} = 0.000746032960885 \: [M/atm]
+$$
+
+Headspace hydrogen was pressurized to 2 atm for the Oman 2023 13C SIP experiments. $P_{H_2} = 2 \: [atm]$ . Applying Henry's law with our temperature-adjusted Henry's coefficient:
+
+$$
+\begin{aligned} 
+C &= kP \\
+C[M] &= (0.000746032960885 \left[\frac{M}{atm} \right]) \cdot 2[atm] \\
+C &= 0.00149206592177 \: M \\
+C &= 1.49 mM \: H_2
+
+\end{aligned}
+$$
+
+The effective concentration of dissolved $H_2$ is 1.49 mM.
+
+### Methane 
+
+We want to calculate the Henry's constant of $CH_4$ at 35˚C (308.15K). The temperature dependence of $CH_4$ according to [Burkholder et al. 2019 (reviewed by R. Sander 2023)](https://henrys-law.org/henry/casrn/74-82-8)is $H^{cp}_{s}$ = `1600` and the Henry's law constant at reference temperature (298.15 K) is `1.4E-5` mol/m3Pa.
+
+$$
+\begin{aligned} 
+H(308K) &= H^{\circ} exp \left[\frac{-\Delta_{sol}}{R} \left(\frac{1}{T} - \frac{1}{T^{\circ}} \right)       \right] \\
+
+H(308K) &= (1.4 \times 10^{-5}) exp \left[1600 \left( \frac{1}{308.15} - \frac{1}{298.15}\right)\right] \\
+
+H(308K) &= (1.4 \times 10^{-5}) \cdot e^{−0.174149806766} \\
+
+H(308K) &= 0.000011762394349 \: [mol/m^3Pa]
+\end{aligned}
+$$
+
+Which is the same as saying: $$
+H(308K) = 0.000011762394349 \: [M / Pa]
+$$
+
+or 1.1E-5 M/Pa.
+
+We convert to atm using the conversion factor 101.325 Pa/atm: $$
+\begin{aligned}
+H(308K) = 0.00119182460741 \: [M / atm] \\
+H(308K) = 1.19 \times 10^{-3} \: [M / atm]
+\end{aligned}
+$$
