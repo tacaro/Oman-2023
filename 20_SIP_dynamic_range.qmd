@@ -1,0 +1,62 @@
+---
+title: "nanoSIMS-SIP Dynamic Range"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+This script calculates propagated error of growth rate to determine the dynamic range of the SIP experiment. I.e., what growth rates are measurable and which are not?
+
+## Setup
+
+```{r}
+library(tidyverse)
+source("source/calculate_mu.R")
+```
+
+```{r}
+assim_data <- read_rds("cache/SIMS_assim_data.RDS")
+```
+
+```{r}
+negative_ctls <- assim_data |> filter(amendment == "negative control")
+```
+
+```{r}
+neg_ctl_mean <- negative_ctls |> 
+  select(F13C) |> 
+  pull() |> 
+  mean()
+
+neg_ctl_sd <- negative_ctls |> 
+  select(F13C) |> 
+  pull() |> 
+  sd()
+
+threshold <- neg_ctl_mean + (3*neg_ctl_sd)
+```
+
+Convert F13C detection threshold into generation time
+
+```{r}
+thresholds <- assim_data |> 
+  mutate(
+    # calculate relative growth rate by threshold
+    threshold_u_d = calculate_mu(
+      a = 1,
+      F2 = threshold,
+      F1 = F13C.t0,
+      FL = F13C.label,
+      t2 = dt,
+      t1 = 0
+    ),
+    # convert from u_d to generation time
+    threshold_gen_d = log(2)/threshold_u_d
+  ) |> 
+  select(well, depth, amendment, threshold_gen_d) |> 
+  distinct() |> 
+  mutate(threshold_gen_yr = threshold_gen_d / 365)
+
+thresholds |> writexl::write_xlsx("data_output/threshold_gen_times.xlsx")
+```
