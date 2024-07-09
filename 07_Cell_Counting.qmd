@@ -177,12 +177,101 @@ cowplot::save_plot(
   base_width = 5
 )
 
-cowplot::save_plot(
-  filename = "fig_output/cell_concentrations.png",
-  plot = p_cell_concs,
-  base_height = 5,
-  base_width = 5
+# cowplot::save_plot(
+#   filename = "fig_output/cell_concentrations.png",
+#   plot = p_cell_concs,
+#   base_height = 5,
+#   base_width = 5
+# )
+```
+
+# Relationship with assimilation
+
+```{r}
+assim_data_cells <- read_rds("cache/assim_summary.RDS") |> 
+  pivot_longer(
+    cols = c("acetate", "formate", "bicarbonate"),
+    names_to = "Csource",
+    values_to = "fmol_C_cell_day"
+  ) |> 
+  mutate(site = str_replace(site, "m", "")) |> 
+  left_join(cell_concs, by = join_by(well, depth, site))
+
+p_corr <- assim_data_cells |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
+  ggplot(
+    aes(
+      x = cells_per_ml,
+      y = fmol_C_cell_day
+    )
+  ) +
+  geom_point(aes(color = well,
+      shape = as.factor(depth)),
+      size = 3) +
+  geom_smooth(method = "lm", formula = "y~x", se = FALSE) +
+  ggpmisc::stat_poly_eq(ggpmisc::use_label(c("eq", "R2")), size = 3) +
+  facet_wrap(vars(Csource), scales = "free") +
+  scale_color_manual(values = well_palette) +
+  labs(
+    x = "Cells/mL",
+    y = "C assimilation (fmol C / cell / day)",
+    shape = "Depth (mbs)",
+    color = "Borehole"
+  ) +
+  theme_bw() +
+  theme(
+    axis.text = element_text(size = 6)
+  )
+p_corr
+
+```
+
+# Relationship with cell size
+
+```{r}
+assim_data_mass <- read_rds("cache/SIMS_assim_data.RDS") |> 
+  group_by(well, depth, amendment) |> 
+  summarize(
+    mean_cell_mass = mean(cell.C.fg, na.rm = TRUE),
+    mean_fmol_C_cell_day = mean(rC.fmol.d, na.rm = TRUE)
+    )
+
+p_mass_corr <- assim_data_mass |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
+  filter(amendment != "negative control") |> 
+  ggplot(
+    aes(
+      y = mean_fmol_C_cell_day,
+      x = mean_cell_mass
+    )
+  ) +
+  geom_point(aes(color = well,
+      shape = as.factor(depth)),
+      size = 3) +
+  geom_smooth(method = "lm", formula = "y~x", se = FALSE) +
+  ggpmisc::stat_poly_eq(ggpmisc::use_label(c("eq", "R2")), size = 3) +
+  facet_wrap(vars(amendment), scales = "free") +
+  scale_color_manual(values = well_palette) +
+  labs(
+    x = "Mean cell biomass (fg)",
+    y = "C assimilation (fmol C / cell / day)",
+    shape = "Depth (mbs)",
+    color = "Borehole"
+  ) +
+  theme_bw() +
+  theme(
+    axis.text = element_text(size = 6)
+  )
+p_mass_corr
+
+
+p_combined <- cowplot::plot_grid(
+  p_corr, p_mass_corr, ncol = 1, labels = c("A", "B")
 )
+p_combined
+
+cowplot::save_plot(plot = p_combined, filename = "fig_output/correlations_w_cscar.pdf",
+                   base_height = 6, base_width = 12)
 ```
 
 # Export GT
@@ -207,6 +296,7 @@ gt_cell_concs <- cell_concs |>
   ) |> 
   cols_align(align = "center")
   
+gt_cell_concs
 gtsave(gt_cell_concs, filename = "data_output/cell_concs.html")
 ```
 
