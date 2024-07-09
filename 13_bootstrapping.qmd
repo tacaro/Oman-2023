@@ -64,7 +64,7 @@ BA_density_porosity_full <- bind_rows(BA4A_data, BA1B_data, BA3A_data) |>
   rename(porosity = `Porosity (vol%)`,
          density = `Bulk density (g/cm³)`)
 
-BA_density_porosity <- bind_rows(BA4A_data, BA1B_data, BA3A_data) |> 
+BA_density_porosity <- bind_rows(BA4A_data, BA1B_data, BA3A_data) |>
   select(core, everything()) |> 
   group_by(core) |> 
   summarize(
@@ -553,24 +553,35 @@ Inspect the distribution of individual cell biomass from nanoSIMS data:
 ```{r}
 BA_mass <- assim_data |> select(well, depth, cell.C.fg) |> 
   rename(core = well) |> 
-  mutate(core = factor(core, levels = c("BA1B", "BA4A", "BA3A")))
+  mutate(core = factor(core, levels = c("BA1B", "BA4A", "BA3A"))) |> 
+  mutate(depth_str = case_when(
+    depth == 20 ~ "Shallow (20m)",
+    depth == 150 ~ "Intermediate (150m)",
+    depth == 250 ~ "Deep (250/270m)",
+    depth == 270 ~ "Deep (250/270m)"
+  )) |> 
+  mutate(depth_str = factor(
+    depth_str, levels = c("Deep (250/270m)", "Intermediate (150m)","Shallow (20m)")))
   
-p_biomass <- BA_mass |> ggplot(
+p_biomass <- BA_mass |> 
+  ggplot(
   aes(
-    x = cell.C.fg, y = core
+    x = cell.C.fg, y = depth_str
   )
 ) +
   ggdist::stat_halfeye() +
   labs(x = "Single-cell biomass (fg C)",
        y = "") +
   coord_cartesian(xlim = c(0, 250)) +
+  facet_grid(vars(core)) +
   theme_bw() +
   theme(
     axis.text = element_text(color = "black")
   )
+p_biomass
 
-p_biomass |> cowplot::save_plot(filename = "fig_output/cs_biomass.pdf",
-                                base_height = 2, base_width = 4)
+p_biomass |> cowplot::save_plot(filename = "fig_output/cs_biomass_depth.pdf",
+                                base_height = 3, base_width = 4)
 ```
 
 # Export
