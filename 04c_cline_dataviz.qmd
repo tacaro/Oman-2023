@@ -46,11 +46,16 @@ rm(df1, df2) # remove excess tibbles
 # Plot
 
 ```{r}
-amendment_palette <- c("#9c0000", "#004e9c", "#003b09")
+source("source/color_palettes.R")
 
-clines_wctls |> 
-  mutate(depth.str = paste(depth, "m")) |> 
-  mutate(depth.str = fct_reorder(.f = depth.str, .x = depth)) |> 
+p_clines <- clines_wctls |> 
+  mutate(depth_str = case_when(
+    depth == 20 ~ "Shallow (20m)",
+    depth == 150 ~ "Intermediate (150m)",
+    depth == 250 ~ "Deep (250/270m)",
+    depth == 270 ~ "Deep (250/270m)"
+  )) |> 
+  mutate(depth_str = fct_rev(depth_str)) |> 
   ggplot(
     aes(x = dt,
         y = conc.um,
@@ -59,7 +64,7 @@ clines_wctls |>
         shape = amendment)
   ) +
   geom_point() +
-  scale_color_manual(values = amendment_palette) +
+  scale_color_brewer(palette = "Set1") +
   geom_line() +
   geom_errorbar(aes(
     ymin = conc.um - sd.conc.um,
@@ -68,10 +73,27 @@ clines_wctls |>
     width = 3,
     linetype = "solid"
   ) +
-  facet_wrap(vars(well, depth.str), scales = "free_y") +
+  facet_grid(well~depth_str) +
   theme_bw() +
   labs(
     x = "Incubation Time (Days)",
-    y = "Total Sulfide (µM)"
+    y = "Total Sulfide (µM)",
+    color = "Carbon Source",
+    shape = "Carbon Source",
+    linetype = "Carbon Source"
+  ) +
+  theme(
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(color = "black"),
+    strip.background = element_blank()
   )
+p_clines
+```
+
+```{r}
+cowplot::save_plot(
+  filename = "fig_output/cline_assays.pdf",
+  plot = p_clines,
+  base_height = 6, base_width = 7
+)
 ```
