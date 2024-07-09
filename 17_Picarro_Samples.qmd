@@ -546,6 +546,74 @@ p_crds_diff2
 #                    base_height = 4, base_width = 10)
 ```
 
+```{r}
+p_crds_diff3 <- crds_diff |> 
+  pivot_longer(
+    cols = c(percent_ch4_from_label, percent_ch4_from_other),
+    values_to = "fraction", names_to = "type"
+  ) |> 
+  mutate(
+    type = case_when(type == "percent_ch4_from_label" ~ "13C Tracer",
+                     type == "percent_ch4_from_other" ~ "Other"),
+    source = case_when(
+      type == "13C Tracer" & amendment == "bicarbonate" ~ "13C-bicarbonate",
+      type == "13C Tracer" & amendment == "formate" ~ "13C-formate",
+      type == "13C Tracer" & amendment == "acetate" ~ "13C-acetate",
+      type == "Other" ~ "12C-Other"
+      ),
+    source = factor(source, levels = c("12C-Other", "13C-bicarbonate", "13C-formate", "13C-acetate"))
+  ) |> 
+  mutate(
+    depth_amendment = paste(amendment, depth_str),
+    depth_str = fct_rev(depth_str)
+  ) |> 
+  mutate(
+    condition = paste(amendment, depth_str)
+  ) |> 
+  filter(source != "12C-Other") |> 
+  ggplot() +
+  aes(
+    x = fraction,
+    y = condition,
+    color = source,
+    fill = source,
+    shape = source
+  ) +
+  geom_segment(
+    aes(
+      x = 0, xend = fraction, color = source,
+      yend = condition
+    )
+  ) +
+  geom_segment(
+    aes(
+      x = 100, xend = fraction,
+      yend = condition
+    ),
+    color = "gray"
+  ) +
+  geom_point(size = 3, color = "black") +
+  scale_shape_manual(values = c(21, 22, 23, 24)) +
+  scale_fill_manual(values = c("#ff9100" , "#ff0077", "#9c0000")) +
+  scale_color_manual(values = c("#ff9100" , "#ff0077", "#9c0000")) +
+  scale_x_continuous(labels = scales::label_percent(scale = 1)) +
+  facet_wrap(vars(well)) +
+  labs(
+    x = latex2exp::TeX("Fraction $CH_4$ derived from $^{13}C$ amendment")
+  ) +
+  theme_bw() +
+  theme(
+    panel.grid = element_blank(),
+    strip.background = element_blank()
+  )
+p_crds_diff3
+
+cowplot::save_plot(
+  filename = "fig_output/CRDS_frac.pdf", plot = p_crds_diff3,
+  base_height = 5, base_width = 12
+)
+```
+
 ### Summary table
 
 ```{r}
