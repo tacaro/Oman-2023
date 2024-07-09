@@ -328,7 +328,7 @@ p_h2 <- assim_metabolic |>
   labs(
     x = latex2exp::TeX("$H_{2} \\; [tonnes \\cdot (km^3 \\cdot yr)^{-1}]$"),
     y = "",
-    caption = "Red line indicates estimate of Templeton et al. (in review): 3.95"
+    caption = "Red line indicates estimate of Templeton et al. (2024): 3.95"
   ) +
   theme_om23() + 
   theme(
