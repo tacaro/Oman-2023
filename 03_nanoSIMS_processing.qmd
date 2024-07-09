@@ -77,7 +77,9 @@ amendments <- readxl::read_excel("data/13C-amendment-concentrations.xlsx") |>
          spike.uM = concentration.um)
 
 # DIC concentration data
-DIC <- readRDS(file = "data/Caro DIC Run1 March 6/om23_dic_run1.RDS")
+# using "Caro DIC Run1 March 6 2" instead of "Caro DIC Run1 March 6" because
+# the former is the dataset that uses BA3A high volume injections.
+DIC <- readRDS(file = "data/Caro DIC Run1 March 6 2/om23_dic_run1.RDS")
 
 # VOA data (via EMSL NMR)
 voa_corrected_ctl <- readRDS("cache/VOA_corrected.RDS")
@@ -256,12 +258,24 @@ DIC_slim <- DIC |>
   select(well, depth, DIC_uM, d13C.scale, d13C.error.S) |> 
   # convert d13C to F13C (fractional abundance)
   mutate(
+    # register values as delta notation
     DIC.d13C = delta(`13C` = d13C.scale, major = "12C", ref = "VPDB"),
     DIC.d13C.error = delta(`13C` = d13C.error.S, major = "12C", ref = "VPDB"),
+    DIC.d13C.error_upper = delta(
+      `13C` = as.numeric(DIC.d13C) + as.numeric(DIC.d13C.error),
+      major = "12C", ref = "VPDB"
+      ),
+    DIC.d13C.error_lower = delta(
+      `13C` = as.numeric(DIC.d13C) - as.numeric(DIC.d13C.error),
+      major = "12C", ref = "VPDB"),
+    # convert delta notation to ratio
     DIC.R13C = to_ratio(DIC.d13C),
-    DIC.R13C.error = to_ratio(DIC.d13C.error ),
+    DIC.R13C.error_upper = to_ratio(DIC.d13C.error_upper),
+    DIC.R13C.error_lower = to_ratio(DIC.d13C.error_lower),
+    # convert ratio to fractional abundance
     DIC.F13C = as.numeric(to_abundance(DIC.R13C)),
-    DIC.F13C.error = as.numeric(to_abundance(DIC.R13C.error))
+    DIC.F13C.error_upper = as.numeric(to_abundance(DIC.R13C.error_upper)),
+    DIC.F13C.error_lower = as.numeric(to_abundance(DIC.R13C.error_lower)),
   ) |> 
   select(-c(d13C.scale, d13C.error.S))
 ```
@@ -723,8 +737,8 @@ p_13F <- growth_data |>
     legend.position = "None",
     panel.grid = element_blank(),
     strip.background = element_rect(fill = "black"),
-    strip.text.x = element_text(color = "white", angle = 0, face = "bold"),
-    strip.text.y = element_text(color = "white", angle = 0, face = "bold")
+    strip.text.x = element_text(color = "white", face = "bold"),
+    strip.text.y = element_text(color = "white", face = "bold")
   )
   
 p_13F
@@ -947,7 +961,8 @@ where:
 
 ```{r}
 calculate_K <- function(a = 1, FT, Fi, FL) {
-  # a defaults to 1, assuming autotrophic growth
+  # because we're comparing assimilation efficiencies between compounds
+  # we set a = 1
   # use other values as appropriate
   K = (a*FT - Fi) / (a*FL - Fi)
 }
@@ -1183,7 +1198,7 @@ p_fmolC <- assim_data |>
     shape = 124,
     position = position_nudge(y = -0.2),
     color = "red",
-    size = 2.5
+    size = 1
     ) +
   # Plot the quantified data as black bars
   geom_point(
@@ -1191,7 +1206,7 @@ p_fmolC <- assim_data |>
     shape = 124,
     position = position_nudge(y = -0.2),
     alpha = 0.7,
-    size = 2.5
+    size = 1
     ) +
   ggdist::stat_halfeye(
     data = function(df) df |> filter(quantified),
@@ -1410,12 +1425,6 @@ p_cell_volumes <- assim_data |>
     color = quantified
   ) +
   ggdist::stat_halfeye(color = "black", scale = 0.5, point_interval = "mean_qi") +
-  geom_point(
-    position = position_nudge(y = -0.2),
-    alpha = 0.5,
-    shape = 124,
-    size = 1
-    ) +
   scale_x_continuous(limits = c(0, 1)) +
   scale_color_manual(values = c("red", "black")) +
   facet_grid(vars(well)) +
