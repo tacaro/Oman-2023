@@ -11,6 +11,7 @@ cache/*
 data/Nikon-Widefield/*
 data_output/*
 Data/16S/*
+data/16S_batch2/*
 data/.DS_Store
 fig_output/*
 data/nanoSIMS_tables/.DS_Store
