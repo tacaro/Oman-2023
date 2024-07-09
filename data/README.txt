@@ -1,0 +1,2 @@
+NOTE: `Caro DIC Run1 March 6` is our initial processing of the DIC data. 
+`Caro DIC Run1 March 6 2` is our updated processing of the DIC data that accounts for the larger volume analysis of BA3A samples. Reminder: for these we analyzed a larger volume of fluid because DIC was so low. This larger volume is accounted for in the calculations.
