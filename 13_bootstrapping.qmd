@@ -27,7 +27,7 @@ source("source/theme_om23.R")
 ```{r}
 assim_data <- read_rds("cache/SIMS_assim_data.RDS") |> 
   # trim out columns not needed for this exercise:
-  select(sample_id, well, depth, amendment, at13C, mu.d, 
+  select(sample_id, well, depth, amendment, F13C, mu.d, 
          gen.d, K, cell.C.fg, rC.fmol.d)
 
 BA_cell_counts <- readxl::read_excel(
