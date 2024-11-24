@@ -20,15 +20,40 @@ source("source/color_palettes.R")
 Load files
 
 ```{r}
+# 13C-nanoSIMS-SIP dataset from cache
 assim_data <- read_rds("cache/SIMS_assim_data.RDS") |> 
   # trim out columns not needed for this exercise:
   select(sample_id, well, depth, amendment, F13C, mu.d, 
          gen.d, K, cell.C.fg, rC.fmol.d)
+
+# Hoehler et al. 2023 SI dataset
+msp_lit_data <- 
+  readxl::read_excel("data/Hoehler_SI_Data1.xlsx", sheet = 2) |> 
+  mutate(
+    MSP_W_gC = `Metabolic Rate (W, at 25C)` / `Carbon Mass (g)`
+  )
+
+# Inspect the Hoehler et al. data
+msp_lit_data |> 
+  filter(!is.na(Kingdom)) |> 
+  ggplot(
+    aes(
+      x = `Carbon Mass (g)`,
+      y = `Metabolic Rate (W, at 25C)`,
+      color = Kingdom
+    )
+  ) +
+  geom_point() +
+  scale_x_log10() +
+  scale_y_log10() +
+  theme_bw() +
+  theme(
+    panel.grid = element_blank()
+  )
+
 ```
 
 # Energy requirement calculations
-
-> From Tori: More a Carbon turnover rate than as a doubling time. "Lower limit on doubling time."
 
 Hoehler et al. in their 2023 paper [@hoehler2023] consider the specific carbon turnover rate $\mu^*$ in mass carbon biomass synthesized $(C_{biosynthesis})$ per unit time per mass of standing biomass carbon ($C_{biomass}$). Consider mass in grams and time in seconds:
 
@@ -40,12 +65,7 @@ $$
 Dividing $\mu^*$ by MSP cancels the terms of time and standing biomass $(s^{-1} \times g \: C^{-1}_{biomass})$ giving a quantity representing biomass synthesized per unit energy $(g \: C_{biosynthesis} \: J^{-1})$ which they refer to as biosynthesis yield, or $Y^*$.
 
 $$
-Y^* = 
-\frac{\mu^*}{MSP} = 
-\frac{g \: C_{biosynthesis} \times s^{-1} \times g \: C_{biomass}^{-1}}
-{J \times s^{-1} \times g \: C_{biomass}^{-1} } =
-\frac{g \: C_{biosynthesis}}{J} 
-\quad \quad (Eq. 2)
+Y^* = \frac{\mu^*}{MSP} = \frac{g \: C_{biosynthesis} \times s^{-1} \times g \: C_{biomass}^{-1}}{J \times s^{-1} \times g \: C_{biomass}^{-1} } =\frac{g \: C_{biosynthesis}}{J} \quad \quad (Eq. 2)
 $$
 
 which can be expressed in kilojoules instead of Joules:
@@ -234,7 +254,7 @@ assim_data_summary |>
   ggplot(
     aes(
       x = mu_star.yr,  # 
-      y = TG.yr,
+      y = 1/TG.yr,
       color = well
     )
   ) +
@@ -261,126 +281,297 @@ $$
 We can calculate an energy requirement in Joules per cubic cm of rock (volume-specific power, VSP) by multiplying the cell density by the CSP:
 
 $$
-VSP [J \times s^{-1} \times (cm^3)^{-1}] = CSP[J \times s^{-1} \times cell^{-1}] \times \frac{cell}{cm^3_{rock}} \quad \quad (Eq. 9)
+VSP [J \times s^{-1} \times (cm^3)^{-1}] = CSP[J \times s^{-1} \times cell^{-1}]  \times \frac{cell}{cm^3_{rock}} \times a \quad \quad (Eq. 9)
 $$
 
-We use the average value of $10^5$ cells per $cm^3$ of rock and convert VSP to units of Joules per cubic km per year as follows:
+We use the average value of $10^5$ cells per $cm^3$ of rock (adjusted for the relative abundance of *Methanobacterium,* $(0 < a < 1)$*)* and convert VSP to units of Joules per cubic km per year as follows:
 
 $$
-VSP[J \times yr^{-1} \times km^3] = VSP[J \times s^{-1} \times (cm^3)^{-1}] \times \frac{3.154\times 10^7 \: s}{yr} \times \frac{10^{15}cm^3}{km^3} 
+VSP[J \times yr^{-1} \times km^3] = VSP[J \times s^{-1} \times (cm^3)^{-1}] \times \frac{3.154\times 10^7 \: s}{yr} \times \frac{10^{15}cm^3}{km^3}
 \quad \quad (Eq. 10)
 $$
 
 We can then apply an estimate of $2.393 \times 10^{10}$ Joules produced per tonne $H_2$ consumed in methanogenesis, calculated from the maximum ∆G of $H_2 + 4CO_2 \rightarrow CH_4 + 2H_2O$ under far from equilibrium conditions [@leong2020], we can calculate a volume-specific $H_2$ oxidation rate:
 
 $$
-H_2[tonnes \times (km^3 \times yr)^{-1}] = VSP[J \times (km^3 \times yr)^{-1}] \times \frac{1 \: tonne \:H_2}{2.393 \times 10^{10} J} \quad \quad (Eq. 11)
+H_2 \: \left( tonnes \times (km^3 \times yr)^{-1} \right) = VSP \left(J \times (km^3 \times yr)^{-1} \right) \times \frac{1 \: tonne \:H_2}{2.393 \times 10^{10} J} \quad \quad (Eq. 11)
 $$
+
+...
 
 $$
 H_2[tonnes \times (km^3 \times yr)^{-1}] = VSP[J \times (km^3 \times yr)^{-1}] \times \frac{1 mol \: H_2}{4850 \: J}
 \times \frac{2.01568 \: g \: H_2}{1 mol \: H_2} \times \frac{1 \: tonne}{10^6 \: g}
 $$
 
-Following a similar approach for methanogenesis, [@hoehler2001] predict that methanogeneic archaea are supported by energy yields as small as -10.6 kJ/mol CH4 (-1060 J / mol H2)
+How much CH4 is produced per tonne H2 oxidized?
+
+$$
+1 \: tonne \: H_2 \times \frac{10^6 g \: H_2}{1 tonne H2} \times \frac{1 mol H_2}{2.01568 g \: H_2}
+\times \frac{1 mol CH_4}{4 mol H_2} \times \frac{16.04 g \: CH_4}{1 mol \: CH_4} \times \frac{1 tonne \: CH_4}{10^6 g \: CH_4}
+$$
+
+```{r}
+tonne_h2_to_tonne_ch4 <- function(H2_tonnes) {
+  ch4_tonnes = H2_tonnes * 1e6 * (1/2.01568) * (1/4) * (16.04) * (1/1e6)
+  return(ch4_tonnes)
+}
+```
 
 ```{r}
 #| label: calculate H2 oxidation rate
+
+# import methanobacterium abundance
+mb_abund <- readxl::read_excel("data_output/methanobacterium_abund.xlsx") |> 
+  mutate(depth = parse_number(depth_m)) |> select(well, depth, sum_abund)
+
 assim_metabolic <- assim_data_summary |> 
+  left_join(mb_abund, by = join_by(well, depth)) |> 
+  ## Example calculation
+  # bind_rows(
+  #   tibble(MSP.J_s_g = 1E-3,
+  #          cell.C.fg = 67,
+  #          sum_abund = 0.11)
+  # ) |> 
   mutate(
-    cell.C.g = cell.C.fg / 1e15, # convert cell biomass in fg to g
-    CSP.J_s_cell = MSP.J_s_g * cell.C.g, # calculate CSP (Eq. 8)
-    VSP.J_s_cm3 = CSP.J_s_cell * 1e5, # calculate VSP (Eq. 9)
-    VSP.J_yr_km3 = VSP.J_s_cm3 * 3.154e7 * 1e15, # VSP unit scaling (Eq. 10)
-    MA_H2ox.tonnes_yr_km3 = VSP.J_yr_km3 / 2.393e10, # H2oxidation from VSP (Eq. 11)
-    SRB_H2ox.tonnes_yr_km3 = VSP.J_yr_km3 * (1/4850) * 2.01568 * (1/1e6),
-    MA_CH4_prod.tonnes_yr_km3 = MA_H2ox.tonnes_yr_km3
+    # convert cell biomass in fg to g
+    cell.C.g = cell.C.fg / 1e15,
+    # calculate cell-specific power (Eq. 8)
+    CSP.J_s_cell = MSP.J_s_g * cell.C.g, 
+    # calculate VSP (Eq. 9) (cells to volume)
+    VSP.J_s_cm3 = CSP.J_s_cell * 1e5, 
+    # adjusted for mb rel abund
+    VSP.J_s_cm3_ADJ = CSP.J_s_cell * 1e5 * sum_abund, 
+    # VSP unit scaling (Eq. 10): J/yr/km3 from J/sec/cm
+    VSP.J_yr_km3 = VSP.J_s_cm3 * 3.154e7 * 1e15, 
+    # Adjusted for mb abund
+    VSP.J_yr_km3_ADJ = VSP.J_s_cm3_ADJ * 3.154e7 * 1e15, 
+    # H2oxidation mass from VSP (Eq. 11)
+    MA_H2ox.tonnes_yr_km3 = VSP.J_yr_km3 / 2.393e10, 
+    # H2oxidation from VSP  (Eq. 11) adjusted for mb abund
+    MA_H2ox.tonnes_yr_km3_ADJ = VSP.J_yr_km3_ADJ / 2.393e10, 
+    # CH4 production from stoichiometry of methanogenesis:
+    MA_CH4.tonnes_yr_km3 = tonne_h2_to_tonne_ch4(MA_H2ox.tonnes_yr_km3),
+    # adjusted for mb abund
+    MA_CH4.tonnes_yr_km3_ADJ = tonne_h2_to_tonne_ch4(MA_H2ox.tonnes_yr_km3_ADJ) 
   )
+
+
 ```
 
-Plot it:
+### H2 vs. CH4 stoich
 
 ```{r}
-#| label: plot H2 oxidation rate
-#| code-fold: true
+library(ggpmisc)
 
-p_h2 <- assim_metabolic |> 
-  filter(mu_star.yr > 0) |> 
-  filter(amendment == "bicarbonate") |> 
+assim_metabolic |> 
   ggplot(
     aes(
       x = MA_H2ox.tonnes_yr_km3,
-      y = depth_str,
-      color = amendment
+      y = MA_CH4.tonnes_yr_km3
     )
   ) +
-  geom_vline(xintercept = 3.95, color = "red", linewidth = 0.5) +
-  ggdist::stat_pointinterval(point_interval = "mean_qi", color = "black") +
-  # ggdist::stat_pointinterval(aes(x = SRB_H2ox.tonnes_yr_km3),
-  #                            point_interval = "mean_qi", color = "#e39714",
-  #                            position = position_nudge(y = -0.2),
-  #                            shape = 15) +
-  annotation_logticks(sides = "b") +
-  scale_x_log10(
-                labels = scales::trans_format("log10", scales::math_format(10^.x))) +
-  scale_color_manual(values = well_palette) +
-  facet_grid(vars(well)) +
+  geom_smooth(method = "lm") +
+  geom_point() +
+  coord_cartesian(xlim = c(0,1200), ylim = c(0, 1200)) +
+  geom_abline(slope = 1, linetype = "dotted") +
   labs(
-    x = latex2exp::TeX("$H_{2} \\; [tonnes \\cdot (km^3 \\cdot yr)^{-1}]$"),
-    y = "",
-    caption = "Red line indicates estimate of Templeton et al. (2024): 3.95"
+    x = "H2 oxidized (tonnes/yr/km3)",
+    y = "CH4 produced (tonnes/yr/km3)"
   ) +
-  theme_om23() + 
+  theme_classic() +
   theme(
-    panel.spacing = unit(0.15, "cm"),
-    legend.position = "None"
+    aspect.ratio = 1
   )
-p_h2
 
-cowplot::save_plot(plot = p_h2, filename = "fig_output/h2_ox_tonnes.pdf",
-                   base_height = 5, base_width = 6)
 ```
 
-The value estimated by Templeton et al. (2024 - in review) of 3.95 tonnes $H_2/km^3/yr$, indicated by the vertical red line, appears to be an under-estimate of hydrogen oxidation via methanogenesis. The cause of this is that Templeton et al. assume a cellular turnover rate of 1 $yr^{-1}$, a slower turnover rate than what is actually observed in many parts of the system.
+### Histogram of VSP
+
+```{r}
+
+# histogram of VSP
+assim_metabolic |> 
+  ggplot(
+    aes(x = VSP.J_yr_km3_ADJ)
+  ) +
+  coord_cartesian(expand = FALSE) +
+  geom_histogram(fill = "blue", alpha = 0.5) +
+  geom_histogram(aes(x = VSP.J_yr_km3), fill = "red", alpha = 0.5) +
+  geom_vline(xintercept = 9.5E10, color = "black", linetype = "dashed") +
+  scale_x_log10() +
+  annotation_logticks(sides = "b") +
+  theme_classic() +
+  labs(
+    x = "VSP (J/yr/km3)",
+    caption = "Blue: adjusted for Methanobacterium relative abundance \n
+    Red: Assumes all cells are Methanobacterium \n
+    Dashed line is VSP in Templeton et al. 2024"
+  )
+```
+
+### histogram of turnover rates
+
+```{r}
+assim_metabolic |> 
+  ggplot(
+    aes(
+      x = mu_star.yr
+    )
+  ) +
+  geom_histogram() +
+  scale_x_log10(
+    labels = scales::trans_format("log10", scales::math_format(10^.x)),
+    breaks = c(1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1)) +
+  annotation_logticks(sides = "b") +
+  theme_classic() +
+  labs(
+    x = "µ* (mass specific carbon turnover per year)"
+  )
+```
+
+### Plot H2 and CH4 rates
+
+```{r}
+#| label: plot H2 oxidation and CH4 production rate
+#| code-fold: true
+
+p_h2_ch4 <- assim_metabolic |> 
+  filter(mu_star.yr > 0) |> 
+  filter(amendment == "bicarbonate") |> 
+  pivot_longer(cols = c(MA_CH4.tonnes_yr_km3_ADJ, MA_H2ox.tonnes_yr_km3_ADJ),
+               values_to = "tonne_km3_yr",
+               names_to = "Gas") |> 
+  mutate(
+    Gas = case_when(Gas == "MA_CH4.tonnes_yr_km3_ADJ" ~ "Methane",
+                    Gas == "MA_H2ox.tonnes_yr_km3_ADJ" ~ "Hydrogen")
+  ) |> 
+  ggplot(
+    aes(
+      x = tonne_km3_yr,
+      y = depth_str,
+      fill = Gas
+    )
+  ) +
+  ggdist::stat_halfeye(
+    slab_alpha = 1,
+    position = position_dodge(width = 0.5)) +
+  annotation_logticks(sides = "b") +
+  scale_x_log10(
+    labels = scales::trans_format("log10", scales::math_format(10^.x)),
+    breaks = c(1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3)) +
+  coord_cartesian(xlim = c(1e-4, 1e3)) +
+  scale_fill_brewer(palette = "Set1") +
+  facet_grid(well~Gas) +
+  labs(
+    x = latex2exp::TeX("$tonnes \\cdot (km^3 \\cdot yr)^{-1}$"),
+    y = "",
+    #caption = "Red line indicates estimate of Templeton et al. (2024): 3.95"
+  ) +
+  theme_bw() + 
+  theme(
+    panel.spacing = unit(0.15, "cm"),
+    legend.position.inside = c(0.2, 0.5),
+    legend.position = "None",
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_blank(),
+    strip.background = element_rect(fill = "black"),
+    strip.text = element_text(color = "white")
+  )
+p_h2_ch4
+
+
+# cowplot::save_plot(plot = p_h2, filename = "fig_output/h2_ox_tonnes_ADJ.pdf",
+#                    base_height = 6, base_width = 8)
+```
+
+Adjusted values:
+
+```{r}
+gt_landscape <- assim_metabolic |> 
+  filter(mu_star.yr > 0) |> 
+  filter(amendment == "bicarbonate") |> 
+  group_by(well, depth_str) |> 
+  summarise(
+    mean_h2_ox = mean(MA_H2ox.tonnes_yr_km3_ADJ, na.rm = TRUE),
+    mean_ch4_prod = mean(MA_CH4.tonnes_yr_km3_ADJ, na.rm = TRUE),
+    max_h2_ox = max(MA_H2ox.tonnes_yr_km3_ADJ, na.rm = TRUE),
+    min_h2_ox = min(MA_H2ox.tonnes_yr_km3_ADJ, na.rm = TRUE),
+    max_ch4_prod = max(MA_CH4.tonnes_yr_km3_ADJ, na.rm = TRUE),
+    min_ch4_prod = min(MA_CH4.tonnes_yr_km3_ADJ, na.rm = TRUE),
+  ) |> 
+  select(well, depth_str, mean_h2_ox, min_h2_ox, max_h2_ox, mean_ch4_prod, min_ch4_prod, max_ch4_prod) |>
+  arrange(desc(depth_str)) |> 
+  gt::gt() |> 
+  gt::tab_spanner(
+    label = "{{CH_4 Produced tonnes km^-1 yr^-1}}",
+    columns = c(mean_ch4_prod, min_ch4_prod, max_ch4_prod)
+  ) |> 
+  gt::tab_spanner(
+    label = "{{H_2 tonnes km^-1 yr^-1}}",
+    columns = c(mean_h2_ox, min_h2_ox, max_h2_ox)
+  ) |> 
+  gt::data_color(columns = (-depth_str), palette = "Blues") |> 
+  gt::cols_label(
+    depth_str = "",
+    mean_h2_ox = "Mean",
+    mean_ch4_prod = "Mean",
+    max_h2_ox = "Max",
+    max_ch4_prod = "Max",
+    min_ch4_prod = "Min",
+    min_h2_ox = "Min"
+  ) |> 
+  gt::fmt_scientific()
+
+gt_landscape
+
+#gt::gtsave(gt_landscape, filename = "data_output/gt_landscape.html")
+```
+
+Un-adjusted values:
+
+```{r}
+assim_metabolic |> 
+  filter(mu_star.yr > 0) |> 
+  filter(amendment == "bicarbonate") |> 
+  group_by(well, depth_str) |> 
+  summarise(
+    mean_h2_ox = mean(MA_H2ox.tonnes_yr_km3, na.rm = TRUE),
+    mean_ch4_prod = mean(MA_CH4.tonnes_yr_km3, na.rm = TRUE),
+    max_h2_ox = max(MA_H2ox.tonnes_yr_km3, na.rm = TRUE),
+    min_h2_ox = min(MA_H2ox.tonnes_yr_km3, na.rm = TRUE),
+    max_ch4_prod = max(MA_CH4.tonnes_yr_km3, na.rm = TRUE),
+    min_ch4_prod = min(MA_CH4.tonnes_yr_km3, na.rm = TRUE),
+  ) |> 
+  select(well, depth_str, mean_h2_ox, min_h2_ox, max_h2_ox, mean_ch4_prod, min_ch4_prod, max_ch4_prod) |> 
+  arrange(desc(depth_str)) |> 
+  gt::gt() |> 
+  gt::tab_spanner(
+    label = "{{CH_4 Produced tonnes km^-1 yr^-1}}",
+    columns = c(mean_ch4_prod, min_ch4_prod, max_ch4_prod)
+  ) |> 
+  gt::tab_spanner(
+    label = "{{H_2 tonnes km^-1 yr^-1}}",
+    columns = c(mean_h2_ox, min_h2_ox, max_h2_ox)
+  ) |> 
+  gt::data_color(columns = (-depth_str), palette = "Blues") |> 
+  gt::cols_label(
+    depth_str = "",
+    mean_h2_ox = "Mean",
+    mean_ch4_prod = "Mean",
+    max_h2_ox = "Max",
+    max_ch4_prod = "Max",
+    min_ch4_prod = "Min",
+    min_h2_ox = "Min"
+  ) |> 
+  gt::fmt_scientific()
+```
+
+The value estimated by Templeton et al. (2024) of 3.95 tonnes $H_2/km^3/yr$, appears to be an under-estimate of hydrogen oxidation via methanogenesis. The cause of this is that Templeton et al. assume a cellular turnover rate of 1 $yr^{-1}$, a slower turnover rate than what is actually observed in many parts of the system.
 
 Our estimates display substantial variability in volume-specific hydrogen oxidation. The sources of this variability arises from the data itself: microbial carbon turnover rates in the system are highly heterogeneous across space and depth.
 
-What about methane production? In the reaction for methanogenesis, methane is produced in equimolar amounts as H2 is oxidized:
-
-```{r}
-p_ch4 <- assim_metabolic |> 
-  filter(mu_star.yr > 0) |> 
-  filter(amendment == "bicarbonate") |> 
-  ggplot(
-    aes(
-      x = MA_CH4_prod.tonnes_yr_km3,
-      y = depth_str,
-      color = amendment
-    )
-  ) +
-  ggdist::stat_pointinterval(point_interval = "mean_qi", color = "black") +
-  # ggdist::stat_pointinterval(aes(x = SRB_H2ox.tonnes_yr_km3),
-  #                            point_interval = "mean_qi", color = "#e39714",
-  #                            position = position_nudge(y = -0.2),
-  #                            shape = 15) +
-  annotation_logticks(sides = "b") +
-  scale_x_log10(
-                labels = scales::trans_format("log10", scales::math_format(10^.x))) +
-  scale_color_manual(values = well_palette) +
-  facet_grid(vars(well)) +
-  labs(
-    x = latex2exp::TeX("$CH_{4} \\; [tonnes \\cdot (km^3 \\cdot yr)^{-1}]$"),
-    y = ""
-  ) +
-  theme_om23() + 
-  theme(
-    panel.spacing = unit(0.15, "cm"),
-    legend.position = "None"
-  )
-p_ch4
-```
-
-# Compare to literature data
+# Compare to literature basal limits
 
 Lever et al. 2015 estimate the energy turnover requirements of amino acid racemization during four different scenarios (see Fig. 11, dashed lines). These four scenarios cover a range of protein repair scenarios depending on whether an organism repairs single AAs or has to repair larger (up to whole) chunks of protein.
 
@@ -412,7 +603,7 @@ $$
 
 In other words, convert kJ to J, convert cell to carbon with a cell-to-carbon ratio, then convert yr to seconds, and bam, we've got MSP in Hoehler et al. terms (watts per gram carbon).
 
-The only unknown multiplication factor in this is cell-to-carbon ratio. But what cell-to-carbon ratio should we use? Let's just take the mean from our entire study as a rough estimate. These are order-of-magnitude differences in maintenance based on different AA repair and the amount of C shouldn't be a **major** difference.
+The only unknown multiplication factor in this is cell-to-carbon ratio. But what cell-to-carbon ratio should we use? Let's just take the mean from our entire study as a rough estimate. These are order-of-magnitude differences in maintenance based on different AA repair and the amount of C per cell (30 to 100 fg) shouldn't be a massive difference.
 
 ```{r}
 mean_cell_mass_fgC <- assim_data |> select(cell.C.fg) |> pull() |> mean()
@@ -465,6 +656,95 @@ litreview <- readxl::read_excel("data/Hoehler_Fig3data.xlsx") |>
          mu_star.yr = `Biomass C Turnover, Observed (yr-1)`
          ) |> 
   filter(!is.na(source))
+```
+
+Read in Templeton & Caro 2023 AREPS SI data on biomass turnover in the rock hosted biosphere (RHB), convert generation time to turnover rate $\mu$ , then to mass-specific carbon turnover rate $\mu^*$ by multiplying by the average cell biomass of the study:
+
+$$
+\mu \: (day^{-1}) = ln(2)/T_G \\
+\mu^* = \mu \: (day^{-1}) \times g C_{biomass} = gC_{biomass}/day \\
+$$
+
+### Read in Templeton & Caro 2023
+
+```{r}
+# Read in Templeton & Caro (AREPS 2023) SI Data
+# on biomass turnover in the rock hosted biosphere (RHB)
+rhb_turnover <- readxl::read_excel(
+  "data/Templeton_and_Caro_AREPS_SI_data.xlsx"
+) |> 
+  mutate(
+    # calculate turnover rate from generation time
+    mu_star.day = log(2) / gen_time_d_mean,
+    mu_star.yr = mu_star.day * 365, # convert from days-1 to yr-1
+    mu_star.sec = mu_star.day / 86400, # 86400 seconds per day
+    # Eq. 7:
+    MSP.J_s_g = mu_star.sec / 0.00003
+  ) |> 
+  filter(Source != "LABEL")
+```
+
+### Read in Hoehler et al. 2023
+
+Combine Hoehler et al. literature data with our literature data:
+
+```{r}
+hoehler_sediment_data <- readxl::read_excel("data/Sediment MSP.xlsx") |> 
+  rename("MSP.J_s_g" = `MSP (W/gC)`,
+         "depth_cm" = `Depth (cm)`) |> 
+  select(-c(note, Citation)) |> 
+  mutate(
+    group = case_when(
+      depth_cm >= 100 ~ "Marine Sediments (>= 1 m depth)",
+      depth_cm < 100 ~ "Marine Sediments (< 1 m depth)"
+    )
+    )
+
+litreview_combined <- litreview |> 
+  # Add in templeton & Caro rock hosted biosphere data
+  bind_rows(rhb_turnover |> 
+              filter(Source != "LABEL") |> 
+              rename(group = Source) |> 
+              select(group, mu_star.yr, MSP.J_s_g)
+              ) |> 
+  # clean up names
+  mutate(
+    group = case_when(
+      str_detect(group, "sediment") ~ "Marine Sediments (>= 1 m depth)",
+      str_detect(group, "rock") ~ "Rock-hosted subsurface",
+      str_detect(group, "soil") ~ "Soil",
+      str_detect(group, "Marine PP") ~ "Marine Primary Production",
+      str_detect(group, "culture") ~ "Culture",
+      str_detect(group, "Soils") ~ "Soil",
+      str_detect(group, "Terrestrial PP") ~ "Terrestrial Primary Production",
+      TRUE ~ group
+    )
+  ) |> 
+  # add in Hoehler sediment data
+  bind_rows(hoehler_sediment_data) |> 
+  group_by(group) |> 
+  mutate(median_msp = median(MSP.J_s_g, na.rm = TRUE)) |> 
+  ungroup() |> 
+  mutate(group = fct_rev(fct_reorder(group, median_msp)))
+
+
+```
+
+Inspect sediment data
+
+```{r}
+hoehler_sediment_data |> 
+  ggplot(
+    aes(
+      x = MSP.J_s_g,
+      y = depth_cm
+    )
+  ) +
+  geom_point() +
+  scale_x_log10() +
+  scale_y_reverse()
+
+plotly::ggplotly()
 ```
 
 Plot our data
@@ -576,13 +856,13 @@ p_MSP_vs_mustar
 # )
 ```
 
-# As a density:
+# Plot as a density curve:
 
 ```{r}
-
-
+# Panel B
 p_MSP_density <- assim_metabolic |> 
   rename(group = well) |>
+  mutate(group = factor(group, levels = c("BA4A", "BA1B", "BA3A"))) |> 
   filter(MSP.J_s_g > 0) |>
   ggplot(
     aes(
@@ -604,9 +884,11 @@ p_MSP_density <- assim_metabolic |>
            xmax = scenario2_MSP, color = "black", fill = "#ba0000") +
   annotate(geom = "rect", ymin = -Inf, ymax = Inf, xmin = 1e-10, alpha = 1,
            xmax = scenario1_MSP, color = "black", fill = "#ba0000") +
-  ggridges::geom_density_ridges(color = "black") +
-  scale_fill_manual(values = well_palette) +
+  ggridges::geom_density_ridges(color = "black", alpha = 0.5, scale = 0.9) +
+  ggdist::stat_pointinterval(color = "black") +
+  scale_fill_manual(values = c("#3471ab", "#dc2522", "#48a44b")) +
   coord_cartesian(xlim = c(1e-8, 1e2)) +
+  annotation_logticks(side = "b") +
   theme_classic() +
   labs(
     x = "Mass-Specific Power (W /(g C))",
@@ -617,26 +899,33 @@ p_MSP_density <- assim_metabolic |>
     #axis.text.y = element_blank(),
     axis.ticks.y = element_blank(),
     axis.title.y = element_blank(),
-    legend.position = "None"
+    legend.position = "None",
+    panel.grid.major.x = element_line(color = "lightgray", linewidth = 0.25),
+    panel.grid.major.y = element_line(color = "black", linewidth = 0.25)
   )
 p_MSP_density
 
-p_litreview <- litreview |> 
+
+# Panel A
+p_litreview <- litreview_combined |> 
   ggplot(
     aes(
       x = MSP.J_s_g,
       y = group,
       fill = group,
       color = group
-    )) +
-    scale_x_log10(
-    sec.axis = dup_axis(),
-    breaks = c(1e-8, 1e-6, 1e-4, 1e-2, 1e0, 1e2),
-    labels = scales::trans_format("log10", scales::math_format(10^.x))
+      )
     ) +
-  geom_point(shape = 21, color = "black", size = 3) +
-  scale_fill_brewer(palette = "Set1") +
-  coord_cartesian(xlim = c(1e-8, 1e2)) +
+  scale_x_log10(
+      sec.axis = dup_axis(),
+      breaks = c(1e-8, 1e-6, 1e-4, 1e-2, 1e0, 1e2),
+      labels = scales::trans_format("log10", scales::math_format(10^.x))
+  ) +
+  #geom_point(shape = 21, color = "black", size = 3) +
+  ggdist::stat_pointinterval(color = "black") +
+  scale_fill_brewer(palette = "Set3") +
+  coord_cartesian(xlim = c(1e-8, 1e2), ylim = c(0, 9)) +
+  annotation_logticks(side = "t") +
   theme_classic() +
   theme(
     legend.position = "None",
@@ -646,7 +935,8 @@ p_litreview <- litreview |>
     axis.title.x = element_blank(),
     axis.line.x.bottom = element_blank(),
     axis.text.x.bottom = element_blank(),
-    axis.ticks.x.bottom = element_blank()
+    axis.ticks.x.bottom = element_blank(),
+    panel.grid.major.x = element_line(color = "lightgray", linewidth = 0.25)
   )
 p_litreview
 
@@ -657,8 +947,8 @@ p_MSP_dens_combined <- cowplot::plot_grid(
 p_MSP_dens_combined
 
 cowplot::save_plot(plot = p_MSP_dens_combined,
-                   base_height = 7, base_width = 10,
-                   filename = "fig_output/MSP_literature_density.pdf"
+                   base_height = 9, base_width = 11,
+                   filename = "fig_output/MSP_literature_density2.pdf"
                    )
 ```
 
