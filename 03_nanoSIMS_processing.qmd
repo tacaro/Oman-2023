@@ -1183,12 +1183,84 @@ assim_data <- growth_data |>
     )
 ```
 
+Test
+
+```{r}
+assim_data2 <- growth_data |> 
+  # convert axis lengths to µm instead of pixels
+  mutate(
+    axis_major_length.um = axis_major_length * um_per_px,
+    axis_minor_length.um = axis_minor_length * um_per_px
+  ) |> 
+  mutate(
+    # add at13C natural abundance (F_i)
+    F13C.t0 = neg_ctl_mean,
+    # calculate K, fraction of cell assimilated from tracer
+    F13C_DF = (F13C - 0.010 * 0.08)/(1-0.08),
+    K = calculate_K(a = 1, FT = F13C_DF, Fi = F13C.t0, FL = F13C.label),
+    # calculate cell volume
+    vol = calculate_volume(L = axis_major_length.um, W = axis_minor_length.um),
+    # calculate cell carbon mass in fg
+    cell.C.fg = calculate_mcarbon(V = vol),
+    # calculate mass of assimilated carbon
+    assim.C.fg = calculate_assimilated_C(mass = cell.C.fg, K = K),
+    # calculate rate of assimilation per day
+    # fg/day
+    rC.fg.d = calculate_assim_rate(mu = assim.C.fg, t = dt),
+    rC.fmol.d = rC.fg.d / 12.01
+  ) |> 
+  mutate(
+    rC.fg.d = case_when(
+      rC.fg.d < 0 ~ 0,
+      rC.fg.d >= 0 ~ rC.fg.d
+      ),
+    rC.fmol.d = case_when(
+      rC.fmol.d < 0 ~ 0,
+      rC.fmol.d >= 0 ~ rC.fmol.d
+      ),
+    assim.C.fg = case_when(
+      assim.C.fg < 0 ~ 0,
+      assim.C.fg >= 0 ~ assim.C.fg
+      )
+  ) |> 
+  mutate(
+    well = factor(well, levels = c("BA1B", "BA4A", "BA3A")),
+    depth_str = factor(case_when(
+      depth == 20 ~ "Shallow (20m)",
+      depth == 150 ~ "Intermediate (150m)",
+      depth == 250 ~ "Deep (250/270m)",
+      depth == 270 ~ "Deep (250/270m)"
+    ),
+    levels = c("Shallow (20m)","Intermediate (150m)","Deep (250/270m)")
+    )
+  )  |> 
+  mutate(
+    quantified = if_else(
+      F13C > (neg_ctl_mean + (3*neg_ctl_sd)),
+      true = TRUE,
+      false = FALSE
+      )
+    )
+```
+
 #### Plot 3: Plot Carbon Assimilation Rate
 
 ```{r}
 p_fmolC <- assim_data |> 
   filter(amendment != "negative control") |> 
-  filter(rC.fmol.d > 0) |> 
+  filter(rC.fmol.d > 0) |>
+  mutate(
+    amendment = factor(amendment, levels = c("bicarbonate", "acetate", "formate")),
+    well = case_when(
+      well == "BA1B" ~ "BA1B (Mildly Alkaline)",
+      well == "BA4A" ~ "BA4A (Moderately Alkaline)",
+      well == "BA3A" ~ "BA3A (Hyperalkaline)",
+    ),
+    well = factor(well, levels = c("BA1B (Mildly Alkaline)", 
+                                   "BA4A (Moderately Alkaline)",
+                                   "BA3A (Hyperalkaline)"))
+    ) |> 
+  arrange(amendment) |> 
   ggplot(
     aes(x = rC.fmol.d, y = depth_str)
   ) +
@@ -1208,10 +1280,16 @@ p_fmolC <- assim_data |>
     alpha = 0.7,
     size = 1
     ) +
+  ggdist::stat_pointinterval(
+    data = function(df) df |> filter(quantified),
+    color = "black",
+    point_interval = "median_qi", # median quantile interval
+    .width = c(0.66, 0.95) # 66% and 95% CI
+    ) +
   ggdist::stat_halfeye(
     data = function(df) df |> filter(quantified),
-    color = "black", 
-    height = 0.8,
+    color = "black",
+    height = 1,
     point_interval = "median_qi", # median quantile interval
     .width = c(0.66, 0.95) # 66% and 95% CI
     ) +
@@ -1234,19 +1312,83 @@ p_fmolC <- assim_data |>
   theme(
     panel.grid = element_blank(),
     panel.spacing = unit(0.1, "cm"),
-    strip.text.y = element_text(angle = 0),
     strip.background = element_blank(),
-    axis.text = element_text(color = "black")
+    axis.text = element_text(color = "black"),
+    strip.text.y = element_text(angle = 0, size = 12, face = "bold", hjust = 0),
+    strip.text.x = element_text(size = 12, face = "bold", hjust = 0.5)
     )
 
 p_fmolC
 
-cowplot::save_plot(
-  plot = p_fmolC,
-  filename = "fig_output/cell_specific_assim.pdf",
-  base_height = 8,
-  base_width = 12
-)
+# cowplot::save_plot(
+#   plot = p_fmolC,
+#   filename = "fig_output/cell_specific_assim.pdf",
+#   base_height = 8,
+#   base_width = 12
+# )
+```
+
+test
+
+```{r}
+assim_data |> 
+  mutate(type = "no-DF") |> 
+  bind_rows(assim_data2 |> mutate(type = "DF")) |> 
+  filter(amendment != "negative control") |> 
+  filter(rC.fmol.d > 0) |>
+  mutate(
+    amendment = factor(amendment, levels = c("bicarbonate", "acetate", "formate")),
+    well = case_when(
+      well == "BA1B" ~ "BA1B (Mildly Alkaline)",
+      well == "BA4A" ~ "BA4A (Moderately Alkaline)",
+      well == "BA3A" ~ "BA3A (Hyperalkaline)",
+    ),
+    well = factor(well, levels = c("BA1B (Mildly Alkaline)", 
+                                   "BA4A (Moderately Alkaline)",
+                                   "BA3A (Hyperalkaline)"))
+    ) |> 
+  arrange(amendment) |> 
+  ggplot(
+    aes(x = rC.fmol.d, y = depth_str, color = type, fill = type)
+  ) +
+  # Plot the non-quantified data as red bars
+  ggdist::stat_pointinterval(
+    data = function(df) df |> filter(quantified),
+    color = "black",
+    point_interval = "median_qi", # median quantile interval
+    .width = c(0.66, 0.95) # 66% and 95% CI
+    ) +
+  ggdist::stat_halfeye(
+    data = function(df) df |> filter(quantified),
+    color = "black",
+    height = 1,
+    point_interval = "median_qi", # median quantile interval
+    .width = c(0.66, 0.95) # 66% and 95% CI
+    ) +
+  facet_grid(amendment~well) +
+  #scale_color_manual(values = amendment_palette) +
+  scale_x_log10(
+    breaks = c(1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0),
+    labels = scales::trans_format("log10", 
+    scales::math_format(10^.x))
+    ) +
+  scale_y_discrete(limits = rev) +
+  coord_cartesian(xlim = c(1e-6, 1e0)) +
+  annotation_logticks(sides = "b") +
+  labs(
+    x = latex2exp::TeX("fmol C $cell^{-1} \\; day^{-1}$"),
+    y = "",
+    color = "Carbon Source"
+  ) +
+  theme_bw() +
+  theme(
+    panel.grid = element_blank(),
+    panel.spacing = unit(0.1, "cm"),
+    strip.background = element_blank(),
+    axis.text = element_text(color = "black"),
+    strip.text.y = element_text(angle = 0, size = 12, face = "bold", hjust = 0),
+    strip.text.x = element_text(size = 12, face = "bold", hjust = 0.5)
+    )x
 ```
 
 ### Table summary of C assimilation rates
