@@ -1,0 +1,440 @@
+---
+title: "21: Conservative Mixing"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+### Import geochemistry data
+
+```{r}
+library(tidyverse)
+library(gt)
+
+# Clean up cation data removing duplicate columns
+cations <- readxl::read_excel("data_output/cation_data.xlsx") |> 
+  select(-c(`Mg 279.077 - R\r\r\n(mg/L)`, `Sc 357.253 - A (IS)`)) |> 
+  rename_with(.cols = -c(well, depth, sample_id), str_sub, end = 2) |> 
+  select(sample_id, well, depth, Si, Mg, Ca, Na)
+
+anions <- readxl::read_excel("data_output/anion_data.xlsx")
+field <- readxl::read_excel("data_output/field_data.xlsx")
+
+# import DIC data and cleanup
+DIC <- readRDS(file = "data/Caro DIC Run1 March 6 2/om23_dic_run1.RDS") |> 
+  mutate(
+    well = case_when(
+      str_detect(Identifier1, "BA1B") ~ "BA1B",
+      str_detect(Identifier1, "BA3A") ~ "BA3A",
+      str_detect(Identifier1, "BA4A") ~ "BA4A",
+    ),
+    sample_id = paste0(well, "-", depth)
+  ) |> 
+  filter(!str_detect(Identifier1, "-e")) |> 
+  filter(!is.na(well), !is.na(depth)) |> 
+  select(sample_id, DIC_uM) |> 
+  mutate(DIC_M = DIC_uM / 1e6) # uM to M
+
+# Import type 1 and type 2 endmember fluid compositions
+endmembers <- readxl::read_excel("data/fluid_endmember_compositions.xlsx")
+endmembers_plot <- readxl::read_excel("data/fluid_endmember_compositions.xlsx", sheet = 2) |> 
+  mutate(well = "Endmember Fluid")
+  
+# define quick function for converting mg/L to M
+mgL_to_M <- function(mgL, MW) {
+  molarity = (mgL / 1000) * (1 / MW)
+  return(molarity)
+}
+
+# Create larger geochem dataset to work with and plot
+geochem <- cations |> 
+  left_join(DIC, join_by(sample_id)) |> 
+  #left_join(anions, join_by(sample_id, well, depth)) |> 
+  right_join(field |> select(sample_id, pH), join_by(sample_id)) |> 
+  bind_cols(endmembers) |> 
+  # convert mg/L to M
+  mutate(
+    Si_M = mgL_to_M(Si, MW = marelac::atomicweight$Si),
+    Mg_M = mgL_to_M(Mg, MW = marelac::atomicweight$Mg),
+    Ca_M = mgL_to_M(Ca, MW = marelac::atomicweight$Ca),
+    Na_M = mgL_to_M(Na, MW = marelac::atomicweight$Na)
+  ) |> 
+  select(sample_id, well, depth, pH, Si_M, Mg_M, Ca_M, Na_M, DIC_M, everything())
+
+# Import Leong et al. 2021 assembled metadataset
+leong <- readxl::read_excel("data/Leong_et_al_fluid_data.xlsx") |> 
+  mutate(DIC_mm = as.numeric(DIC_mm)) |> 
+  # convert to M
+  mutate(DIC_M = DIC_mm / 1e3,
+         Si_M = Si_mm / 1e3,
+         Mg_M = Mg_mm / 1e3,
+         Ca_M = Ca_mm / 1e3) |> 
+  mutate(log_DIC_M = log10(DIC_M),
+         log_Si_M = log10(Si_M),
+         log_Mg_M = log10(Mg_M),
+         log_Ca_M = log10(Ca_M)) |> 
+  rename(sample_id = `Sample Number`) |> 
+  select(-c(DIC_mm, Si_mm, Ca_mm, Mg_mm, Site)) |> 
+  mutate(well = "Previous Studies")
+```
+
+Converting mg/L to molarity as follows:
+
+$$
+\frac{mg}{L} \times \frac{1g}{1000 mg} \times \frac{mol}{g} = \frac{mol}{L}
+$$
+
+### Intro
+
+This script outlines the estimation of mixing between Type 1 and Type 2 waters.
+
+$$
+c_m = c_1f + c_2(1 - f)
+$$
+
+-   $c_m$ = the concentration of the mixed water
+-   $c_1$ = the concentration of the conservative tracer in water 1
+-   $c_2$ = the concentration of the conservative tracer in water 2
+-   $f$ = the proportion of end member 1 in the mixture
+-   $1 - f$ = the proportion of end member 2 in the mixture
+
+If the concentrations of the two endmembers are known (or assumed) their concentrations are measured, we can rearrange this equation
+
+$$
+f = \frac{c_m - c_2}{c_1 - c_2}
+$$
+
+```{r}
+calculate_mixing <- function(conc_mixed, conc_endmember2, conc_endmember1,
+                             str_output = FALSE) {
+  frac1 = (conc_mixed - conc_endmember2) / (conc_endmember1 - conc_endmember2)
+  
+  frac2 = 1 - frac1
+  
+  if(str_output) {
+    str = paste("Endmember 1:", frac1, "Endmember 2:", frac2)  
+    return(str)
+  } else {
+    return(frac1)
+  }
+}
+```
+
+example:
+
+```{r}
+calculate_mixing(
+  conc_mixed = 100, # 100 uM
+  conc_endmember2 = 1000, # 1000 uM
+  conc_endmember1 = 1, # 1 uM
+  str_output = TRUE
+)
+```
+
+### Calculate extent of mixing between type 1 and type 2 endmembers
+
+```{r}
+mixed <- geochem |> 
+  # calculate fraction mixed (fraction type 1 endmember fluid)
+  mutate(
+    frac_mixed_si = calculate_mixing(
+      conc_mixed = Si_M,
+      conc_endmember1 = type1_Si_M,
+      conc_endmember2 = type2_Si_M
+    ),
+    frac_mixed_mg = calculate_mixing(
+      conc_mixed = Mg_M,
+      conc_endmember1 = type1_Mg_M,
+      conc_endmember2 = type2_Mg_M
+    ),
+    frac_mixed_ca = calculate_mixing(
+      conc_mixed = Ca_M,
+      conc_endmember1 = type1_Ca_M,
+      conc_endmember2 = type2_Ca_M
+    ),
+    frac_mixed_DIC = calculate_mixing(
+      conc_mixed = DIC_M,
+      conc_endmember1 = type1_DIC_M,
+      conc_endmember2 = type2_DIC_M
+    )
+  ) |> 
+  mutate(
+    log_Si_M = log10(Si_M),
+    log_Mg_M = log10(Mg_M),
+    log_Ca_M = log10(Ca_M),
+    log_DIC_M = log10(DIC_M)
+  )
+
+mixed_w_meta <- mixed |> 
+  pivot_longer(cols = starts_with("log"),
+               names_to = "measurement", values_to = "log_M") |> 
+  mutate(
+    measurement = case_when(
+      str_detect(measurement, "Si") ~ "Si",
+      str_detect(measurement, "Ca") ~ "Ca",
+      str_detect(measurement, "Mg") ~ "Mg",
+      str_detect(measurement, "DIC") ~ "DIC",
+    )
+  )
+
+leong_long <- leong |>   
+  pivot_longer(cols = starts_with("log"),
+               names_to = "measurement", values_to = "log_M") |> 
+  mutate(
+    measurement = case_when(
+      str_detect(measurement, "Si") ~ "Si",
+      str_detect(measurement, "Ca") ~ "Ca",
+      str_detect(measurement, "Mg") ~ "Mg",
+      str_detect(measurement, "DIC") ~ "DIC",
+    )
+  ) |> 
+  mutate(
+    pH_range = case_when(
+      pH <= 9 ~ "pH < 9",
+      pH > 9 & pH < 11 ~ "pH 9-11",
+      pH >= 11 ~ "pH > 11"
+    )
+  )
+
+endmembers_plot_long <- endmembers_plot |> 
+  pivot_longer(cols = starts_with("log"),
+               names_to = "measurement", values_to = "log_M") |> 
+  mutate(
+    measurement = case_when(
+      str_detect(measurement, "Si") ~ "Si",
+      str_detect(measurement, "Ca") ~ "Ca",
+      str_detect(measurement, "Mg") ~ "Mg",
+      str_detect(measurement, "DIC") ~ "DIC",
+    )
+  )
+
+mixed_w_meta |> 
+  ggplot(
+    aes(
+      x = pH,
+      y = log_M,
+      color = well
+    )
+  ) +
+  facet_wrap(vars(measurement), scales = "free") +
+  stat_smooth(
+    data = leong_long,
+    se = FALSE,
+    color = "darkblue",
+    span = 0.9,
+    linewidth = 0.25
+  ) +
+  geom_point(
+    data = leong_long,
+    color = "gray",
+    shape = 22,
+    fill = NA
+  ) +
+  geom_point(
+    data = endmembers_plot_long,
+    color = "black",
+    shape = 19,
+    fill = NA,
+    size = 5
+  ) +
+  geom_text(
+    data = endmembers_plot_long,
+    aes(label = parse_number(Type)),
+    color = "white",
+    size = 4
+  ) +
+  geom_point() +
+  theme_bw()
+  
+```
+
+### Mixing summary
+
+```{r}
+
+mixed |> 
+  select(sample_id, well, depth, starts_with("frac")) |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
+  arrange(well) |> 
+  gt() |> 
+  fmt_percent(columns = starts_with("frac")) |> 
+  data_color(columns = starts_with("frac"), palette = "viridis",
+             domain = c(1, 0)) |> 
+  tab_spanner(columns = -c("sample_id", "well", "depth"), label = "Percent Type 1 Fluid") |> 
+  cols_label(frac_mixed_si = "Si",
+             frac_mixed_mg = "Mg",
+             frac_mixed_ca = "Ca",
+             frac_mixed_DIC = "DIC") |> 
+  cols_align(columns = everything(),align = "center")
+  
+```
+
+### Plot
+
+```{r}
+p_DIC <- mixed |> 
+  ggplot() +
+  aes(
+    x = pH,
+    y = log_DIC_M,
+    color = well
+  ) +
+  geom_point(
+    data = leong
+  ) +
+  geom_point() +
+  coord_cartesian(xlim = c(5, 13)) +
+  theme_bw()
+p_DIC
+
+p_Si <- mixed |> 
+  ggplot() +
+  aes(
+    x = pH,
+    y = log_Si_M,
+    color = well
+  ) +
+  geom_point() +
+  coord_cartesian(xlim = c(5, 13)) +
+  theme_bw()
+
+p_Mg <- mixed |> 
+  ggplot() +
+  aes(
+    x = pH,
+    y = log_Mg_M,
+    color = well
+  ) +
+  geom_point() +
+  coord_cartesian(xlim = c(5, 13), ylim = c(-8, -1)) +
+  theme_bw()
+
+
+p_Ca <- mixed |> 
+  ggplot() +
+  aes(
+    x = pH,
+    y = log_Ca_M,
+    color = well
+  ) +
+  geom_point() +
+  coord_cartesian(xlim = c(5, 13), ylim = c(-6, -1)) +
+  theme_bw()
+
+p_combined <- cowplot::plot_grid(p_Si, p_Mg, p_Ca, p_DIC,
+                                 ncol = 2)
+p_combined
+```
+
+### EQ3 Data
+
+```{r}
+eq3_w_cb <- read_csv("data/EQ3_output/report_OM23_CB_H+_nohead.csv") |> 
+  pivot_longer(
+    cols = -c(Sample),
+    names_to = "mineral",
+    values_to = "affinity"
+  ) |>
+  mutate(
+    mineral = fct_rev(fct_reorder(mineral, affinity, .na_rm = TRUE)),
+    Sample = str_replace(Sample, "BA4B", "BA4A"),
+    well = case_when(
+      str_detect(Sample, "BA1B") ~ "BA1B",
+      str_detect(Sample, "BA4A") ~ "BA4A",
+      str_detect(Sample, "BA3A") ~ "BA3A"
+    )
+  )
+
+eq3_nocb <- read_csv("data/EQ3_output/report_OM23_NoCB_nohead.csv") |> 
+  pivot_longer(
+    cols = -c(Sample),
+    names_to = "mineral",
+    values_to = "affinity"
+  ) |>
+  mutate(
+    mineral = fct_rev(fct_reorder(mineral, affinity, .na_rm = TRUE)),
+    Sample = str_replace(Sample, "BA4B", "BA4A"),
+    well = case_when(
+      str_detect(Sample, "BA1B") ~ "BA1B",
+      str_detect(Sample, "BA4A") ~ "BA4A",
+      str_detect(Sample, "BA3A") ~ "BA3A"
+    )
+  )
+
+eq3_combined <- eq3_nocb |> 
+  mutate(type = "H+ Charge Balance") |> 
+  bind_rows(eq3_w_cb |> mutate(type = "No Charge Balance")) |> 
+  rename(sample_id = Sample)
+```
+
+Plot
+
+```{r}
+eq3_combined |> 
+  ggplot(
+    aes(
+      x = mineral,
+      y = affinity,
+      color = well
+    )
+  ) +
+  facet_wrap(vars(type), ncol = 1) +
+  geom_point() +
+  labs(
+    x = "Mineral", y = "Affinity (kcal)"
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 6)
+  )
+  
+```
+
+```{r}
+eq3_combined |> 
+  filter(mineral %in% c("calcite", "dolomite", "chrysotile")) |> 
+  ggplot(
+    aes(
+      x = well,
+      y = affinity,
+      color = mineral
+    )
+  ) +
+  facet_wrap(vars(type), ncol = 1) +
+  geom_point() +
+  scale_color_brewer(palette = "Set1") +
+  labs(
+    x = "Mineral", y = "Affinity (kcal)"
+  ) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 10)
+  )
+```
+
+Join with geochem data
+
+```{r}
+mineral_w_geochem <- eq3_combined |> 
+  left_join(geochem, join_by(sample_id, well))
+```
+
+Plot
+
+```{r}
+mineral_w_geochem |> 
+  filter(mineral %in% c("calcite", "dolomite")) |> 
+  ggplot(
+    aes(
+      x = DIC_uM,
+      y = affinity,
+      color = well
+    )
+  ) +
+  geom_point(size = 4) +
+  geom_hline(yintercept = 0) +
+  facet_wrap(vars(type, mineral)) +
+  labs(x = "DIC (uM)", y = "Affinity (kcal)") +
+  theme_bw()
+```
