@@ -467,7 +467,8 @@ Bar chart time:
 ```{r}
 #| fig-width: 12
 #| fig-height: 6
-#| 
+
+
 p_field_relabund <- ps.om23.field.relabund |> 
   #tax_agg("Genus") |> 
   comp_barplot(tax_level = "Genus",
@@ -486,12 +487,42 @@ p_field_relabund <- ps.om23.field.relabund |>
 p_field_relabund
 ```
 
+What is the relative abundance of Methanobacterium in our samples?
+
+```{r}
+methanobacterium_abund <- ps.om23.field.relabund |> 
+  ps_melt() |> 
+  # filter to only include ASVs annotated as Methanobacterium to Genus level
+  filter(Genus == "Methanobacterium") |>
+  group_by(
+    Sample, well, depth_m, Genus
+  ) |> 
+  # Aggregate all distinct ASVs assigned to genus Methanobacterium
+  summarise(
+    sum_abund = sum(Abundance, na.rm = TRUE)
+  ) |> 
+  ungroup()
+
+methanobacterium_abund |> 
+  select(-Sample) |> 
+  mutate(depth_m = factor(depth_m, levels = c("20m", "150m", "250m", "270m"))) |> 
+  arrange(depth_m) |> 
+  gt::gt(rowname_col = "depth_m", groupname_col = "well") |> 
+  gt::data_color(columns = "sum_abund", palette = "Greens") |> 
+  gt::fmt_percent(columns = "sum_abund") |> 
+  gt::cols_label("sum_abund" = "Abundance")
+
+methanobacterium_abund |> 
+  writexl::write_xlsx(path = "data_output/methanobacterium_abund.xlsx")
+  
+```
+
 Really interesting patterns here. Some observations.
 
 1.  All samples have significant populations of Methanobacterium.
 2.  BA1B has significant proportion of *Azospira.* These are nitrogen fixing bacteria.
 3.  BA3A has *Methanobacterium* abundances ranging between 40 - 50 %.
-4.  In BA3A especially (but also in BA1B-150), [D8A-2](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8698779/) is present at high abundance. This is an ulcutred class in the Firmicutes that was characterized to be involved in [magnetite-associated degradation of VFAs](https://www.sciencedirect.com/science/article/pii/S0301479719304955?via%3Dihub#sec3) syntrophically coupled to methanogenesis.
+4.  In BA3A especially (but also in BA1B-150), [D8A-2](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8698779/) is present at high abundance. This is an uncultured class in the Firmicutes that was characterized to be involved in [magnetite-associated degradation of VFAs](https://www.sciencedirect.com/science/article/pii/S0301479719304955?via%3Dihub#sec3) syntrophically coupled to methanogenesis.
 5.  BA4A has substantial sulfur cycling going on. First, we have Thermodesulfovibrionia class detected at moderate abundance. At high abundance is Sulfuritalea and SRB2. [Sulfuritalea](https://pubmed.ncbi.nlm.nih.gov/20709913/) is a known hydrogenitrophic thiosulfate oxidizer. SRB2 is an uncharacterized sulfate reducing family that has been detected in [CROMO](https://www.frontiersin.org/articles/10.3389/fmicb.2017.00308/full).
 6.  Meiothermus is detected in high abundance in BA4A, even at depth. Meiothermus was previously shown to [co-exist with Thermodesulfovibrionia SRB,](https://link.springer.com/article/10.1134/s0026261723600234#Sec3) and their existence at depth was discussed by [Munro-Erlich et al. 2023](https://www.frontiersin.org/articles/10.3389/fmicb.2023.1138656/full#h5).
 7.  [Magnetospirillum](https://www.sciencedirect.com/topics/medicine-and-dentistry/magnetospirillum), a genus of magnetotactic bacteria, are detected in BA4A. COOL.
