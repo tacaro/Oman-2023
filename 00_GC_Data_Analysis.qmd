@@ -373,8 +373,7 @@ p_timeseries <- gc_samples_calc_wt0 |>
   ) +
   theme_om23() +
   theme(
-    panel.grid = element_blank(),
-    aspect.ratio = 1
+    panel.grid = element_blank()
   )
 p_timeseries
 ```
@@ -384,24 +383,24 @@ p_timeseries
 We want to calculate the Henry's coefficient of $CH_4$ at 35˚C (308.15K). The temperature dependence of $CH_4$ according to [Burkholder et al. 2019 (reviewed by R. Sander 2023)](https://henrys-law.org/henry/casrn/74-82-8)is $H^{cp}_{s}$ = `1600` and the Henry's law coefficient at reference temperature (298.15 K) is `1.4E-5` mol/m3Pa.
 
 $$
-\begin{aligned} H(308K) &= H^{\circ} exp \left[\frac{-\Delta_{sol}}{R} \left(\frac{1}{T} - \frac{1}{T^{\circ}} \right)       \right] \\H(308K) &= (1.4 \times 10^{-5}) exp \left[ -1600 \left( \frac{1}{308.15} - \frac{1}{298.15}\right)\right] \\H(308K) &= (1.4 \times 10^{-5}) \cdot e^{0.174149806766} \\H(308K) &= 0.0000166632740057 \: [mol/m^3Pa]\end{aligned} 
+\begin{aligned} H(308K) &= H^{\circ} exp \left[\frac{-\Delta_{sol}}{R} \left(\frac{1}{T} - \frac{1}{T^{\circ}} \right)       \right] \\H(308K) &= (1.4 \times 10^{-5}) exp \left[1600 \left( \frac{1}{308.15} - \frac{1}{298.15}\right)\right] \\H(308K) &= (1.4 \times 10^{-5}) \cdot e^{−0.174149806766} \\H(308K) &= 0.000011762394349 \: [mol/m^3Pa]\end{aligned} 
 $$
 
 Which is equivalent to:
 
 $$
-H(308K) = 0.0000166632740057 \: [M / Pa]
+H(308K) = 0.000011762394349 \: [M / Pa]
 $$
 
 Which we convert to atm using the conversion factor 101.325 Pa/atm:\
 $$
-H(308K) = 0.001688406239 \: [M / atm]
+\begin{aligned}H(308K) = 0.00119182460741 \: [M / atm] \\H(308K) = 1.19 \times 10^{-3} \: [M / atm]\end{aligned}
 $$
 
 Define a function that does this calculation, with Henry's coefficient for methane at 35˚C as the default.
 
 ```{r}
-atm_to_M <- function(atm, H_atm_per_M = 0.001688406239) {
+atm_to_M <- function(atm, H_atm_per_M = 1.19e-3) {
   #' @param H_atm_per_M Henry's constant of gas-of-interest in M/atm
   #' @param atm Partial pressure of gas-of-interest in atm
   #' @return Aqueous concentration of gas-of-interest in M
@@ -627,4 +626,15 @@ Export production rate data
 
 ```{r}
 production_rates |> writexl::write_xlsx(path = "data_output/ch4_production.xlsx")
+```
+
+```{r}
+gc_henry |> 
+  ggplot(
+    aes(
+      x = nmol_headspace,
+      y = nmol_aqueous
+    )
+  ) +
+  geom_point()
 ```
