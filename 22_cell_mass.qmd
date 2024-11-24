@@ -1,0 +1,88 @@
+---
+title: "22: Cell Mass"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+This is a tiny script just for plotting the distribution of cell masses/moles from the cached nanosims data.
+
+# Setup
+
+```{r}
+library(tidyverse)
+
+# load from cache
+nanoSIMS_data <- read_rds("cache/SIMS_assim_data.RDS")
+```
+
+# Plot
+
+```{r}
+summary_strings <- nanoSIMS_data |> 
+  group_by(well) |> 
+  summarise(
+    cell.C.fg_mean = mean(cell.C.fg, na.rm = TRUE),
+    cell.C.fg_sd = sd(cell.C.fg, na.rm = TRUE),
+    ncell = n()
+  ) |> 
+  mutate(
+    summary_string = paste0(" Mean = ", round(cell.C.fg_mean,1), "\n SD = ", round(cell.C.fg_sd, 1), "\n n = ", ncell)
+  )
+```
+
+```{r}
+p_cell_mass <- nanoSIMS_data |> 
+  ggplot(
+    aes(
+      y = well,
+      x = cell.C.fg
+    )
+  ) +
+  ggdist::stat_halfeye() +
+  # just a white background for the text
+  geom_label(
+    data = summary_strings,
+    aes(y = well, label = summary_string), x = 225,
+    size = 3,
+    position = position_nudge(y = 0.4),
+    color = "white", fill = "white"
+  ) +
+  # stat labels
+  geom_text(
+    data = summary_strings,
+    aes(y = well, label = summary_string), x = 225,
+    size = 3,
+    position = position_nudge(y = 0.4),
+  ) +
+  coord_cartesian(xlim = c(0, 250)) +
+  labs(
+    x = "Cell mass (fg C)",
+    y = "Borehole"
+  ) +
+  theme_bw()
+p_cell_mass
+```
+
+## Save plot
+
+```{r}
+cowplot::save_plot(
+  filename = "fig_output/cell_mass.pdf",
+  plot = p_cell_mass,
+  base_height = 5,
+  base_width = 6
+)
+```
+
+## Save stat summary
+
+```{r}
+summary_strings |> 
+  rename("Mean Cell Mass (fg)" = cell.C.fg_mean,
+         "SD Cell Mass (fg)" = cell.C.fg_sd,
+         "n" = ncell) |> 
+  select(-summary_string) |> 
+  writexl::write_xlsx(path = "data_output/cell_masses.xlsx")
+```
