@@ -60,3 +60,4 @@ data/nanoSIMS_tables/.DS_Store
 CRRDS notes.qmd
 data/Picarro/raw_data/*
 data/Picarro/test_CRDS_map.xlsx
+*.png
