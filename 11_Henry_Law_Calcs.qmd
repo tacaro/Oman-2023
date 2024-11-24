@@ -62,7 +62,9 @@ $$
 
 We want to calculate the Henry's constant of $H_2$ at 35˚C (308K.15). The temperature dependence of $H_2$, according to [Fernandez-Prini et al. 2003 (reviewed by R. Sander 2023)](https://henrys-law.org/henry/casrn/1333-74-0), is $H^{cp}_s T$ = `530` and the Henry's law constant at reference temperature (298.15 K) is `7.8E-6` mol/m3Pa:
 
-$$
+\$\$
+
+```{=tex}
 \begin{aligned} 
 H(308K) &= H^{\circ} exp \left[\frac{-\Delta_{sol}}{R} \left(\frac{1}{T} - \frac{1}{T^{\circ}} \right)       \right] \\
 
@@ -72,7 +74,8 @@ H(308K) &= (7.8\times 10^{-6}) \cdot e^{−0.0576871234912}  \\
 
 H(308K) &= 0.00000736277286834 \: [mol / m^3Pa]
 \end{aligned}
-$$
+```
+\$\$
 
 > Does this make sense? Yes. A higher temperature means that a gas is less soluble. A lower Henry's law coefficient (7.3E-6 vs. 7.8E-6) indicates a less soluble gas.
 
@@ -84,7 +87,9 @@ $$
 
 Headspace hydrogen was pressurized to 2 atm for the Oman 2023 13C SIP experiments. $P_{H_2} = 2 \: [atm]$ . Applying Henry's law with our temperature-adjusted Henry's coefficient:
 
-$$
+\$\$
+
+```{=tex}
 \begin{aligned} 
 C &= kP \\
 C[M] &= (0.000746032960885 \left[\frac{M}{atm} \right]) \cdot 2[atm] \\
@@ -92,15 +97,18 @@ C &= 0.00149206592177 \: M \\
 C &= 1.49 mM \: H_2
 
 \end{aligned}
-$$
+```
+\$\$
 
 The effective concentration of dissolved $H_2$ is 1.49 mM.
 
-### Methane 
+### Methane
 
 We want to calculate the Henry's constant of $CH_4$ at 35˚C (308.15K). The temperature dependence of $CH_4$ according to [Burkholder et al. 2019 (reviewed by R. Sander 2023)](https://henrys-law.org/henry/casrn/74-82-8)is $H^{cp}_{s}$ = `1600` and the Henry's law constant at reference temperature (298.15 K) is `1.4E-5` mol/m3Pa.
 
-$$
+\$\$
+
+```{=tex}
 \begin{aligned} 
 H(308K) &= H^{\circ} exp \left[\frac{-\Delta_{sol}}{R} \left(\frac{1}{T} - \frac{1}{T^{\circ}} \right)       \right] \\
 
@@ -110,7 +118,8 @@ H(308K) &= (1.4 \times 10^{-5}) \cdot e^{−0.174149806766} \\
 
 H(308K) &= 0.000011762394349 \: [mol/m^3Pa]
 \end{aligned}
-$$
+```
+\$\$
 
 Which is the same as saying: $$
 H(308K) = 0.000011762394349 \: [M / Pa]
