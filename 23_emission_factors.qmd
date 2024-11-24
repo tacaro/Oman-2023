@@ -1,0 +1,39 @@
+---
+title: "23: Emission Factors"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+## Setup
+
+```{r}
+library(tidyverse)
+# a function to convert kg per ha to tonnes per km2
+source("source/kg_ha_to_tonne_km2.R")
+```
+
+### Enteric fermentation emission factors for cattle
+
+<https://www.ipcc-nggip.iges.or.jp/public/2006gl/pdf/4_Volume4/V4_10_Ch10_Livestock.pdf> (page 10.29)
+
+Emission factors are given in $kg \: CH_4 \: head^{-1} \: yr^{-1}$. We will apply an emission factor of 100 kg CH4 / head /yr.
+
+In order to convert to tonnes CH4 / km2 / yr:
+
+$$
+\frac{kg \: CH_4}{head \cdot yr} \times \frac{1 \: tonne}{1000 \: kg} \times \frac{head}{acre} \times \frac{1 \: acre}{0.00404686 \: km^2} = \frac{tonne \: CH_4}{km^2 \: yr}
+$$
+
+where head/acre is known as the stocking density. We will assume a stocking density of 0.35 as per <https://www.ers.usda.gov/amber-waves/2022/november/study-examines-how-and-where-u-s-cow-calf-operations-use-rotational-grazing/>.
+
+```{r}
+# Assume 100 kg CH4 / head / yr
+
+cattle_em_factor_convert <- function(kgch4_per_head_per_year = 100, head_per_km2 = 0.35) {
+  return(kgch4_per_head_per_year * (1/1000) * head_per_km2 * (1/0.00404686))  
+}
+
+cattle_em_factor_convert(kgch4_per_head_per_year = 100, head_per_km2 = 0.35)
+```
