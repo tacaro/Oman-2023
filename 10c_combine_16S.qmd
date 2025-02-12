@@ -1,0 +1,48 @@
+---
+title: "10c Combine 16S"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+## Setup
+
+```{r}
+#| echo: false
+
+
+# if (!require("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# BiocManager::install("phyloseq")
+# BiocManager::install("Biostrings")
+
+library(phyloseq)   # Bioconductor v1.44.0
+library(tidyverse)  # CRAN v2.0.0
+library(Biostrings) # Bioconductor v2.68.1
+library(decontam)   # Bioconductor v1.20.0
+library(microViz)   # v0.11.0 # [https://david-barnett.r-universe.dev::NA/NA] v0.11.0
+
+```
+
+```{r}
+set1 <- read_rds("cache/ps-decontam.RDS")
+set2 <- read_rds("cache/ps-decontam_batch2.RDS")
+
+set1_names <- set1 |> sample_names()
+set2_names <- set2 |> sample_names()
+
+# confirm no overlapping samples between the two datasets
+setdiff(set1_names, set2_names) # all of set 1
+intersect(set1_names, set2_names) # null
+
+full_set <- merge_phyloseq(set1, set2)
+
+full_set |> phyloseq::sample_data() |> view()
+
+full_set |> phyloseq::plot_bar()
+```
+
+```{r}
+full_set |> write_rds("cache/combined_16S_phyloseq.rds")
+```
