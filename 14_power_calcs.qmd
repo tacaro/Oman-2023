@@ -493,29 +493,29 @@ gt_landscape <- assim_metabolic |>
   filter(amendment == "bicarbonate") |> 
   group_by(well, depth_str) |> 
   summarise(
-    mean_h2_ox = mean(MA_H2ox.tonnes_yr_km3_ADJ, na.rm = TRUE),
-    mean_ch4_prod = mean(MA_CH4.tonnes_yr_km3_ADJ, na.rm = TRUE),
+    median_h2_ox = median(MA_H2ox.tonnes_yr_km3_ADJ, na.rm = TRUE),
+    median_ch4_prod = median(MA_CH4.tonnes_yr_km3_ADJ, na.rm = TRUE),
     max_h2_ox = max(MA_H2ox.tonnes_yr_km3_ADJ, na.rm = TRUE),
     min_h2_ox = min(MA_H2ox.tonnes_yr_km3_ADJ, na.rm = TRUE),
     max_ch4_prod = max(MA_CH4.tonnes_yr_km3_ADJ, na.rm = TRUE),
     min_ch4_prod = min(MA_CH4.tonnes_yr_km3_ADJ, na.rm = TRUE),
   ) |> 
-  select(well, depth_str, mean_h2_ox, min_h2_ox, max_h2_ox, mean_ch4_prod, min_ch4_prod, max_ch4_prod) |>
+  select(well, depth_str, median_h2_ox, min_h2_ox, max_h2_ox, median_ch4_prod, min_ch4_prod, max_ch4_prod) |>
   arrange(desc(depth_str)) |> 
   gt::gt() |> 
   gt::tab_spanner(
     label = "{{CH_4 Produced tonnes km^-1 yr^-1}}",
-    columns = c(mean_ch4_prod, min_ch4_prod, max_ch4_prod)
+    columns = c(median_ch4_prod, min_ch4_prod, max_ch4_prod)
   ) |> 
   gt::tab_spanner(
     label = "{{H_2 tonnes km^-1 yr^-1}}",
-    columns = c(mean_h2_ox, min_h2_ox, max_h2_ox)
+    columns = c(median_h2_ox, min_h2_ox, max_h2_ox)
   ) |> 
   gt::data_color(columns = (-depth_str), palette = "Blues") |> 
   gt::cols_label(
     depth_str = "",
-    mean_h2_ox = "Mean",
-    mean_ch4_prod = "Mean",
+    median_h2_ox = "median",
+    median_ch4_prod = "median",
     max_h2_ox = "Max",
     max_ch4_prod = "Max",
     min_ch4_prod = "Min",
@@ -525,7 +525,7 @@ gt_landscape <- assim_metabolic |>
 
 gt_landscape
 
-#gt::gtsave(gt_landscape, filename = "data_output/gt_landscape.html")
+gt::gtsave(gt_landscape, filename = "data_output/gt_landscape.html")
 ```
 
 Un-adjusted values:
@@ -536,29 +536,29 @@ assim_metabolic |>
   filter(amendment == "bicarbonate") |> 
   group_by(well, depth_str) |> 
   summarise(
-    mean_h2_ox = mean(MA_H2ox.tonnes_yr_km3, na.rm = TRUE),
-    mean_ch4_prod = mean(MA_CH4.tonnes_yr_km3, na.rm = TRUE),
+    median_h2_ox = median(MA_H2ox.tonnes_yr_km3, na.rm = TRUE),
+    median_ch4_prod = median(MA_CH4.tonnes_yr_km3, na.rm = TRUE),
     max_h2_ox = max(MA_H2ox.tonnes_yr_km3, na.rm = TRUE),
     min_h2_ox = min(MA_H2ox.tonnes_yr_km3, na.rm = TRUE),
     max_ch4_prod = max(MA_CH4.tonnes_yr_km3, na.rm = TRUE),
     min_ch4_prod = min(MA_CH4.tonnes_yr_km3, na.rm = TRUE),
   ) |> 
-  select(well, depth_str, mean_h2_ox, min_h2_ox, max_h2_ox, mean_ch4_prod, min_ch4_prod, max_ch4_prod) |> 
+  select(well, depth_str, median_h2_ox, min_h2_ox, max_h2_ox, median_ch4_prod, min_ch4_prod, max_ch4_prod) |> 
   arrange(desc(depth_str)) |> 
   gt::gt() |> 
   gt::tab_spanner(
     label = "{{CH_4 Produced tonnes km^-1 yr^-1}}",
-    columns = c(mean_ch4_prod, min_ch4_prod, max_ch4_prod)
+    columns = c(median_ch4_prod, min_ch4_prod, max_ch4_prod)
   ) |> 
   gt::tab_spanner(
     label = "{{H_2 tonnes km^-1 yr^-1}}",
-    columns = c(mean_h2_ox, min_h2_ox, max_h2_ox)
+    columns = c(median_h2_ox, min_h2_ox, max_h2_ox)
   ) |> 
   gt::data_color(columns = (-depth_str), palette = "Blues") |> 
   gt::cols_label(
     depth_str = "",
-    mean_h2_ox = "Mean",
-    mean_ch4_prod = "Mean",
+    median_h2_ox = "median",
+    median_ch4_prod = "median",
     max_h2_ox = "Max",
     max_ch4_prod = "Max",
     min_ch4_prod = "Min",
@@ -959,22 +959,22 @@ MSP
 ```{r}
 
 
-mean_MSP <- assim_metabolic |> 
+median_MSP <- assim_metabolic |> 
   group_by(well, depth) |> 
   summarize(
-    all = mean(MSP.J_s_g, na.rm = TRUE)
+    all = median(MSP.J_s_g, na.rm = TRUE)
   )
 
-mean_MSP_C <- assim_metabolic |> 
+median_MSP_C <- assim_metabolic |> 
   group_by(well, depth, amendment) |> 
-  summarize(mean_MSP_C = mean(MSP.J_s_g, na.rm = TRUE)) |> 
-  pivot_wider(names_from ="amendment", values_from = "mean_MSP_C") |> 
-  left_join(mean_MSP, by = c("well", "depth")) |> 
+  summarize(median_MSP_C = median(MSP.J_s_g, na.rm = TRUE)) |> 
+  pivot_wider(names_from ="amendment", values_from = "median_MSP_C") |> 
+  left_join(median_MSP, by = c("well", "depth")) |> 
   ungroup()
 
-gt_MSP <- mean_MSP_C |> 
+gt_MSP <- median_MSP_C |> 
   gt::gt(groupname_col = "well") |> 
-  gt::cols_label(all = "mean") |> 
+  gt::cols_label(all = "median") |> 
   gt::fmt_scientific(columns = -depth) |> 
   gt::tab_spanner(columns = c(bicarbonate, acetate, formate, all), 
                   label = "MSP (W (g C){{^-1}}") |> 
@@ -982,7 +982,7 @@ gt_MSP <- mean_MSP_C |>
   gt::data_color(columns = all, palette = "viridis") |> 
   gt::summary_rows(
     columns = -depth,
-    fn = list("mean"),
+    fn = list("median"),
     fmt = list(~ gt::fmt_scientific(., decimals = 2))
   )
 
@@ -990,5 +990,5 @@ gt_MSP <- mean_MSP_C |>
 gt_MSP
 
 gt_MSP |> gt::gtsave("data_output/MSP.html")
-mean_MSP_C |> writexl::write_xlsx("data_output/MSP.xlsx")
+median_MSP_C |> writexl::write_xlsx("data_output/MSP.xlsx")
 ```
