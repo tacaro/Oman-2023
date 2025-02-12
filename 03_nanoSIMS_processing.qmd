@@ -193,11 +193,11 @@ p_ratio_zoom <- p_ratio %+% coord_cartesian(xlim = c(0.008, 0.02))
 p_ratio_combined <- cowplot::plot_grid(p_ratio, p_ratio_zoom, ncol = 1, labels = c("A", "B"))
 p_ratio_combined
 
-cowplot::save_plot(
-  filename = "fig_output/F13C_data_two_panel.pdf",
-  plot = p_ratio_combined,
-  base_height = 10, base_width = 12
-)
+# cowplot::save_plot(
+#   filename = "fig_output/F13C_data_two_panel.pdf",
+#   plot = p_ratio_combined,
+#   base_height = 10, base_width = 12
+# )
 ```
 
 # Rate calculations
@@ -747,7 +747,7 @@ p_13F_zoom <- p_13F %+% coord_cartesian(xlim = c(0.008, 0.02))
 
 p_13F_combined <- cowplot::plot_grid(p_13F, p_13F_zoom, ncol = 1, labels = c("A", "B"))
 
-cowplot::save_plot(plot = p_13F_combined, filename = "fig_output/F13C_with_FL_combined.pdf", base_height = 10, base_width = 12)
+# cowplot::save_plot(plot = p_13F_combined, filename = "fig_output/F13C_with_FL_combined.pdf", base_height = 10, base_width = 12)
 ```
 
 ### Plot Growth Rates
@@ -841,11 +841,11 @@ p_mu_d <- growth_data |>
 
 p_mu_d
 
-cowplot::save_plot(
-  filename = "fig_output/growth_rate_data.pdf",
-  plot = p_mu_d,
-  base_height = 
-)
+# cowplot::save_plot(
+#   filename = "fig_output/growth_rate_data.pdf",
+#   plot = p_mu_d,
+#   base_height = 
+# )
 ```
 
 #### Plot 2.2: Updated gen time
@@ -868,10 +868,10 @@ growth_data_summary_for_gt <- growth_data |>
       )
   ) |>
     group_by(well, depth_str, amendment) |> 
-    summarize(mean_mu.d = mean(mu.d, na.rm = TRUE),
+    summarize(median_mu.d = median(mu.d, na.rm = TRUE),
               max_mu.d = max(mu.d, na.rm = TRUE),
               min_mu.d = min(mu.d, na.rm = TRUE)) |>
-    mutate(mean_gen.d = log(2) / mean_mu.d,
+    mutate(median_gen.d = log(2) / median_mu.d,
            max_gen.d = log(2) / min_mu.d,
            min_gen.d = log(2) / max_mu.d) |> 
     ungroup()
@@ -883,24 +883,30 @@ growth_data_summary_for_gt <- growth_data |>
 
 ```{r}
 gt_gen_times <- growth_data_summary_for_gt |> 
-  select(well, depth_str, amendment, mean_gen.d, max_gen.d, min_gen.d) |> 
+  select(well, depth_str, amendment, median_gen.d, max_gen.d, min_gen.d) |> 
   mutate(depth_str = case_when(
       depth_str == "20m" ~ "Shallow (20m)",
       depth_str == "150m" ~ "Medium (150m)",
       depth_str == "250m" ~ "Deep (250 / 270m)",
       depth_str == "270m" ~ "Deep (250 / 270m)"
     )) |>
-  mutate(depth_str = factor(depth_str, levels = c("Shallow (20m)", "Medium (150m)", "Deep (250 / 270m)"))) |> 
+  mutate(depth_str = 
+           factor(depth_str, 
+                  levels = c("Shallow (20m)", 
+                             "Medium (150m)",
+                             "Deep (250 / 270m)")
+                  )
+         ) |> 
   arrange(depth_str) |> 
   gt(rowname_col = "depth_str", groupname_col = "well") |> 
   cols_label(
     amendment = "Carbon Source",
-    mean_gen.d = "Mean", max_gen.d = "Max", min_gen.d = "Min"
+    median_gen.d = "median", max_gen.d = "Max", min_gen.d = "Min"
   ) |> 
-  tab_spanner(columns = c(max_gen.d,mean_gen.d, min_gen.d), label = "Generation Time (Days)") |> 
+  tab_spanner(columns = c(max_gen.d,median_gen.d, min_gen.d), label = "Generation Time (Days)") |> 
   cols_align("center") |> 
-  fmt_number(columns = c(mean_gen.d, max_gen.d, min_gen.d), decimals = 0) |> 
-  data_color(columns = c(mean_gen.d, max_gen.d, min_gen.d), palette = "viridis",
+  fmt_number(columns = c(median_gen.d, max_gen.d, min_gen.d), decimals = 0) |> 
+  data_color(columns = c(median_gen.d, max_gen.d, min_gen.d), palette = "viridis",
              reverse = TRUE)
   
 gt_gen_times
@@ -1528,7 +1534,7 @@ p_K <- assim_data |>
   )
 p_K
 
-cowplot::save_plot(plot = p_K, filename = "fig_output/K_values.pdf", base_height = 8, base_width = 8)
+# cowplot::save_plot(plot = p_K, filename = "fig_output/K_values.pdf", base_height = 8, base_width = 8)
 ```
 
 ### Plot 5: Single Cell Volumes
@@ -1584,7 +1590,7 @@ p_cell_volumes <- assim_data |>
   )
 p_cell_volumes
 
-cowplot::save_plot(filename = "fig_output/cell_volumes.pdf", plot = p_cell_volumes, base_height = 4, base_width = 6)
+# cowplot::save_plot(filename = "fig_output/cell_volumes.pdf", plot = p_cell_volumes, base_height = 4, base_width = 6)
 ```
 
 # How many cells?
