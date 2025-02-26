@@ -35,3 +35,21 @@ wells_ids <- crossing(
 
 
 ```
+
+```{r}
+pico_reshaped <- pico |> 
+  rownames_to_column(var = "row") |> 
+  pivot_longer(names_to = "num", values_to = "conc", cols = -row) |> 
+  mutate(wells = paste0(row, num)) |> 
+  select(wells, conc)
+
+plate_annot <- plate_map |> 
+  rownames_to_column(var = "row") |> 
+  pivot_longer(names_to = "num", values_to = "sample_id", cols = -row) |> 
+  mutate(wells = paste0(row, num)) |> 
+  select(wells, sample_id) |> 
+  left_join(pico_reshaped, by = "wells") |> 
+  rename(ng_per_ul = conc)
+
+plate_annot |> writexl::write_xlsx("data_output/dna_quant.xlsx")
+```
