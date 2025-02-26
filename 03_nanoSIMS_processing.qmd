@@ -1131,7 +1131,7 @@ calculate_assim_rate_error <- function(
 # how many microns per pixel?
 # each image is 512 x 512 pixels
 # each image is 25 µm x 25 µm area
-um_per_px <- 25 / 512 # um/px
+um_per_px <- 25 / 512 # um/px = 0.0488
 
 assim_data <- growth_data |> 
   # convert axis lengths to µm instead of pixels
