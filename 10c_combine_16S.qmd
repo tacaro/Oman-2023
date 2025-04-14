@@ -46,3 +46,104 @@ full_set |> phyloseq::plot_bar()
 ```{r}
 full_set |> write_rds("cache/combined_16S_phyloseq.rds")
 ```
+
+# Plot and melt
+
+```{r}
+sip_set <- full_set |> 
+  # use a lambda function to calculate relative abundance
+  transform_sample_counts(function(x) x / sum(x)) |> 
+  # remove samples below 0.01 (1%) relative abundance
+  #filter_taxa(function(x) mean(x) > 0.01, TRUE)
+  subset_samples(experiment %in% c("13C-SIP", "OM23 Field"))
+```
+
+```{r}
+
+p_sip_set <- sip_set |> 
+  ps_mutate(
+    well = factor(well, levels = c("BA1B", "BA4A", "BA3A")),
+    amendment = factor(amendment, levels = c("formate", "acetate", "bicarbonate", "pre-incubation")),
+  ) |>
+  comp_barplot(tax_level = "Genus",
+               n_taxa = 30,
+               sample_order = "asis",
+               x = "amendment"
+               ) +
+  facet_grid(
+    rows = vars(well, depth),
+    scales = "free",
+    space = "free"
+  ) +
+  coord_flip() +
+  labs(
+    x = "",
+    y = "Relative Abundance"
+  ) +
+  theme(
+    axis.ticks.y = element_blank(),
+    legend.position = "right"
+  )
+p_sip_set
+
+cowplot::save_plot(
+  filename = "fig_output/16S_fullset.pdf",
+  plot = p_sip_set,
+  base_height = 8,
+  base_width = 12
+)
+```
+
+```{r}
+
+
+# melt the phyloseq  object to a tibble, write as xl
+sip_set |> 
+  ps_melt() |> 
+  writexl::write_xlsx("data_output/all_taxa_abundance.xlsx")
+
+# same thing but just for methanobacterium
+sip_set |> 
+  ps_melt() |> 
+  filter(Genus == "Methanobacterium") |> 
+  group_by(well, depth, amendment, Kingdom, Phylum, Class, Order, Family, Genus) |> 
+  summarize(
+    Abundance = sum(Abundance)
+  ) |> 
+  writexl::write_xlsx("data_output/methanobacterium_abundance.xlsx")
+
+
+
+# same thing but calculate difference of methanobacterium before and after
+# make a tibble of methanobacterium abundance pre-incubation
+mb_pre_inc <- sip_set |>
+  ps_melt() |> 
+  filter(Genus == "Methanobacterium") |> 
+  group_by(well, depth, amendment, Kingdom, Phylum, Class, Order, Family, Genus) |> 
+  summarize(
+    Abundance = sum(Abundance)
+  ) |> 
+  ungroup() |> 
+  filter(amendment == "pre-incubation") |> 
+  select(well, depth, Abundance) |> 
+  mutate(Abundance_pre = Abundance) |> 
+  select(-Abundance)
+
+sip_set |> 
+  ps_melt() |> 
+  filter(Genus == "Methanobacterium") |> 
+  group_by(well, depth, amendment, Kingdom, Phylum, Class, Order, Family, Genus) |> 
+  summarize(
+    Abundance = sum(Abundance)
+  ) |> 
+  ungroup() |> 
+  filter(amendment != "pre-incubation") |> 
+  group_by(well, depth, Kingdom, Phylum, Class, Order, Family, Genus) |> 
+  summarize(
+    Abundance = mean(Abundance, na.rm = TRUE)
+  ) |> 
+  left_join(mb_pre_inc) |> 
+  mutate(avg_abundance_increase = Abundance - Abundance_pre) |> 
+  writexl::write_xlsx("data_output/methanobacterium_average_abund_increase.xlsx")
+  
+```
