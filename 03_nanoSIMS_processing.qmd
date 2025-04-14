@@ -73,8 +73,10 @@ rm(temp) # remove the temp
 ```{r}
 # Amendment target concentration data
 amendments <- readxl::read_excel("data/13C-amendment-concentrations.xlsx") |> 
-  rename(spike.F13C = F13C,
-         spike.uM = concentration.um)
+  dplyr::rename(
+    spike.F13C = F13C,
+    spike.uM = concentration.um
+    )
 
 # DIC concentration data
 # using "Caro DIC Run1 March 6 2" instead of "Caro DIC Run1 March 6" because
@@ -229,7 +231,7 @@ voa_corrected_ctl |>
     values_from = uM_corr, 
     names_from = compound
     ) |> 
-  rename(Acetate_uM = Acetate,
+  dplyr::rename(Acetate_uM = Acetate,
          Formate_uM = Formate) |> 
   gt() |> 
   data_color(columns = Acetate_uM, palette = "Blues") |> 
@@ -241,7 +243,7 @@ voa_concs <- voa_corrected_ctl |>
   filter(compound %in% c("Acetate", "Formate")) |> 
   filter(!is_control) |> 
   select(sample_id, compound, uM_corr) |> 
-  rename(voa_conc_uM = uM_corr) |> 
+  dplyr::rename(voa_conc_uM = uM_corr) |> 
   mutate(voa_F13C = 0.01105639) |> # 13F of VPDB (13R = 0.011180)
   mutate(amendment = stringr::str_to_lower(compound)) |> 
   select(-compound)
@@ -443,7 +445,7 @@ F13C.activity_threshold <- neg_ctl_mean + (3 * neg_ctl_sd)
 # join the tibbles
 growth_data <- roi_data |> 
   # rename sample_id column to coupon_id column
-  rename(coupon_id = sample_id) |>
+  dplyr::rename(coupon_id = sample_id) |>
   # create new column that matches sample_id
   mutate(sample_id = paste0(well, "-", depth), .before = everything()) |>
   # add the DIC data
@@ -585,7 +587,7 @@ effective_label_summary <- growth_data |>
 
 # make a GT
 gt_label_summary <- effective_label_summary |> 
-  rename(
+  dplyr::rename(
     ambient_acetate = ambient_uM_acetate,
     ambient_formate = ambient_uM_formate,
     ambient_bicarbonate = ambient_uM_bicarbonate,
@@ -1394,7 +1396,7 @@ assim_data |>
     axis.text = element_text(color = "black"),
     strip.text.y = element_text(angle = 0, size = 12, face = "bold", hjust = 0),
     strip.text.x = element_text(size = 12, face = "bold", hjust = 0.5)
-    )x
+    )
 ```
 
 ### Table summary of C assimilation rates
