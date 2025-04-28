@@ -117,15 +117,19 @@ voa_corrected_ctl |> write_rds("cache/VOA_corrected.RDS")
 
 ```{r}
 
-well_palette <- c("#207596", "#2c5e43", "#0b9e4d", "#000000")
+source("source/color_palettes.R")
+
+well_palette <- c(well_palette, "black")
 
 p_voa <- voa_corrected_ctl |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A", "control"))) |> 
+  mutate(sample_id = fct_reorder(sample_id, as.numeric(well))) |> 
   ggplot(
     aes(
       x = sample_id,
       y = uM_corr,
-      shape = is_control,
-      color = well
+      shape = well,
+      fill = well
       )
   ) +
   annotation_logticks(sides = "l") +
@@ -147,13 +151,14 @@ p_voa <- voa_corrected_ctl |>
   #   fill = "red",
   #   alpha = 0.25
   # ) +
-  geom_point(size = 2) +
+  geom_point(size = 2, color = "black") +
   geom_pointrange(
-    aes(ymin = uM - uM_sd,
-        ymax = uM + uM_sd)
+    aes(ymin = uM_corr - uM_sd,
+        ymax = uM_corr + uM_sd)
   ) +
   facet_wrap(vars(compound)) +
-  scale_color_manual(values = well_palette) +
+  scale_fill_manual(values = well_palette) +
+  scale_shape_manual(values = c(21, 22, 23, 24)) +
   scale_y_log10(
    breaks = c(1e-1, 1e0, 1e1, 1e2, 1e3),
    labels = scales::trans_format("log10", scales::math_format(10^.x))
@@ -163,8 +168,8 @@ p_voa <- voa_corrected_ctl |>
   labs(
     x = "",
     y = "Concentration (µM)",
-    title = "OM23 SMW Organics",
-    caption = "Source: EMSL NMR Facility",
+    shape = "Borehole",
+    fill = "Borehole"
   ) +
   theme(
     panel.grid.minor.x = element_blank(),
@@ -173,10 +178,24 @@ p_voa <- voa_corrected_ctl |>
     panel.grid.major.y = element_blank(),
     axis.text.x = element_text(angle = 45, hjust = 1),
     strip.background = element_rect(fill = "black"),
-    strip.text = element_text(color = "white")
+    strip.text = element_text(color = "white"),
+    legend.position = "bottom"
   )
 p_voa
 
-cowplot::save_plot(plot = p_voa, filename = "fig_output/voa_data.pdf",
-                   base_height = 10, base_width = 12)
+cowplot::save_plot(
+  plot = p_voa,
+  filename = "fig_output/voa_data.pdf",
+  base_height = 9, base_width = 12
+  )
+```
+
+### export as excel
+
+```{r}
+voa_corrected_ctl |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A", "control"))) |> 
+  mutate(sample_id = fct_reorder(sample_id, as.numeric(well))) |> 
+  writexl::write_xlsx(path = "data_output/voa_data.xlsx")
+  
 ```
