@@ -114,7 +114,7 @@ Y^*[g \: C_{biosynthesis} J^{-1}] &=
 \frac{\mu ^*[g \: C_{biosynthesis} \times (s \times g \: C_{biomass})^{-1} ]}
 {MSP[ J \times s^{-1} \times g \: C_{biomass}^{-1}]} \\
 &\downarrow \\
-0.0000003 \pm 17 \: g \: C_{biosynthesis} \times J^{-1} &= 
+0.00003 \pm 0.000017 \: g \: C_{biosynthesis} \times J^{-1} &= 
 \frac{
 \mu ^*[g \: C_{biosynthesis} \times (s \times g \: C_{biomass})^{-1} ]}
 {MSP[ J \times s^{-1} \times g \: C_{biomass}^{-1}]
@@ -167,6 +167,8 @@ assim_data_summary <- assim_data |>
   )
 ```
 
+### Plot µ\*
+
 ```{r}
 #| label: plot mu star (carbon turnover rate)
 #| code-fold: true
@@ -204,6 +206,33 @@ assim_data_summary |>
   )
 ```
 
+### µ\* as a table
+
+```{r}
+library(gt)
+mu_star_gt <- assim_data_summary |> 
+  filter(mu_star.yr > 0) |> 
+  select(well, depth, amendment, mu_star.yr) |> 
+  group_by(well, depth, amendment) |> 
+  dplyr::summarise(
+    mu_star_median = median(mu_star.yr)
+  ) |> 
+  ungroup() |> 
+  pivot_wider(names_from = c(amendment), values_from = mu_star_median) |> 
+  gt::gt() |> 
+  gt::cols_label(
+    well = "Borehole",
+    depth = "Depth (mbs)"
+  ) |> 
+  gt::tab_spanner(columns = c(bicarbonate, acetate, formate), label = "µ* {{(yr^-1 )}}") |> 
+  gt::data_color(columns = -c(well, depth), palette = "Blues") |> 
+  gt::fmt_scientific(columns = c(bicarbonate, acetate, formate))
+  
+mu_star_gt
+
+gt::gtsave(data = mu_star_gt, filename = "data_output/mu_star.html")
+```
+
 ```{r}
 #| label: plot MSP
 #| code-fold: true
@@ -236,38 +265,6 @@ p_MSP
 
 # cowplot::save_plot(plot = p_MSP, filename = "fig_output/MSP.pdf",
 #                    base_height = 4, base_width = 6)
-```
-
-Inspecting our data, it is clear that estimates of mass-specific carbon turnover diverge slightly from estimates of biomass generation time. The distinction between these two metrics is that biomass carbon turnover assumes a steady state pool of Carbon. In other words, microbial biomass is not increasing at the aggregate level. When we estimate microbial *growth rate*, we are assuming that cellular division takes place and that microbial biomass is increasing. The growth rate and generation time calculations introduce a natural log term to account for clonal growth. We can see how these values diverge by plotting the "generation rate" (number of cellular generations per year) versus the mass-specific carbon turnover rate (number of cell carbon turnovers per year) where generation rate is defined as the inverse of generation time. Generation time is calculated via the specific growth rate $(\mu_{growth})$ that assumes clonal cell growth:
-
-$$
-T_G = ln(2)/\mu_{growth}
-\\ G_R = 1 / T_G
-$$
-
-```{r}
-#| code-fold: true
-#| label: plot mu star vs generation rate
-assim_data_summary |> 
-  filter(mu_star.yr > 0) |> 
-  mutate(TG.yr = TG.d / 365) |> 
-  ggplot(
-    aes(
-      x = mu_star.yr,  # 
-      y = 1/TG.yr,
-      color = well
-    )
-  ) +
-  geom_abline(color = "black") +
-  geom_line() +
-  scale_color_manual(values = amendment_palette) +
-  coord_cartesian(xlim = c(0, 15), ylim = c(0, 15)) +
-  labs(
-    x = latex2exp::TeX("Mass-specific carbon turnover rate $[yr^{-1}]$"),
-    #y = latex2exp::TeX("Generation rate $[yr^{-1}]$")
-  ) +
-  theme_bw() +
-  theme(aspect.ratio = 1)
 ```
 
 ## From energy requirements to metabolic flux
@@ -439,6 +436,7 @@ assim_metabolic |>
 p_h2_ch4 <- assim_metabolic |> 
   filter(mu_star.yr > 0) |> 
   filter(amendment == "bicarbonate") |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
   pivot_longer(cols = c(MA_CH4.tonnes_yr_km3_ADJ, MA_H2ox.tonnes_yr_km3_ADJ),
                values_to = "tonne_km3_yr",
                names_to = "Gas") |> 
@@ -450,7 +448,7 @@ p_h2_ch4 <- assim_metabolic |>
     aes(
       x = tonne_km3_yr,
       y = depth_str,
-      fill = Gas
+      fill = well
     )
   ) +
   ggdist::stat_halfeye(
@@ -461,7 +459,7 @@ p_h2_ch4 <- assim_metabolic |>
     labels = scales::trans_format("log10", scales::math_format(10^.x)),
     breaks = c(1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3)) +
   coord_cartesian(xlim = c(1e-4, 1e3)) +
-  scale_fill_brewer(palette = "Set1") +
+  scale_fill_manual(values = well_palette) +
   facet_grid(well~Gas) +
   labs(
     x = latex2exp::TeX("$tonnes \\cdot (km^3 \\cdot yr)^{-1}$"),
@@ -480,9 +478,8 @@ p_h2_ch4 <- assim_metabolic |>
   )
 p_h2_ch4
 
-
-# cowplot::save_plot(plot = p_h2, filename = "fig_output/h2_ox_tonnes_ADJ.pdf",
-#                    base_height = 6, base_width = 8)
+cowplot::save_plot(plot = p_h2_ch4, filename = "fig_output/h2_ox_tonnes_ADJ.pdf",
+                    base_height = 6, base_width = 8)
 ```
 
 Adjusted values:
@@ -491,6 +488,7 @@ Adjusted values:
 gt_landscape <- assim_metabolic |> 
   filter(mu_star.yr > 0) |> 
   filter(amendment == "bicarbonate") |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
   group_by(well, depth_str) |> 
   summarise(
     median_h2_ox = median(MA_H2ox.tonnes_yr_km3_ADJ, na.rm = TRUE),
@@ -500,8 +498,10 @@ gt_landscape <- assim_metabolic |>
     max_ch4_prod = max(MA_CH4.tonnes_yr_km3_ADJ, na.rm = TRUE),
     min_ch4_prod = min(MA_CH4.tonnes_yr_km3_ADJ, na.rm = TRUE),
   ) |> 
-  select(well, depth_str, median_h2_ox, min_h2_ox, max_h2_ox, median_ch4_prod, min_ch4_prod, max_ch4_prod) |>
+  select(well, depth_str, median_h2_ox, min_h2_ox, 
+         max_h2_ox, median_ch4_prod, min_ch4_prod, max_ch4_prod) |>
   arrange(desc(depth_str)) |> 
+  
   gt::gt() |> 
   gt::tab_spanner(
     label = "{{CH_4 Produced tonnes km^-1 yr^-1}}",
