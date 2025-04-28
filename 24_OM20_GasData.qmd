@@ -1,0 +1,64 @@
+---
+title: "24_OM20_GasData"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+## Setup
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+gd <- readxl::read_excel("data/Oman 2020 Gas Data/OM20_gas_data.xlsx") |> 
+  janitor::clean_names() |> 
+  mutate(depth_m = as.numeric(depth_m))
+```
+
+```{r}
+gd |> 
+  arrange(depth_m) |> 
+  filter(!is.na(depth_m)) |> 
+  ggplot() +
+  aes(color = borehole, y = depth_m, x = dissolved_h2_u_m) +
+  geom_point(aes(shape = sampling_device), size = 2) +
+  geom_path(aes(group = borehole)) +
+  scale_y_reverse() +
+  labs(
+    x = latex2exp::TeX("Dissolved $H_2$ µM"),
+    y = "Depth (mbs)"
+  ) +
+  theme_bw()
+```
+
+```{r}
+gd_gt <- gd |> 
+  mutate(borehole = factor(
+    borehole, 
+    levels = c("WAB188", "BA1A", "BA1D", "BA1B", "BA4A", "BA3A"))
+    ) |> 
+  mutate(
+    sampling_device = factor(
+      sampling_device, 
+      levels = c("open-borehole pumping", "gas-tight tool"))
+    ) |> 
+  arrange(sampling_device, borehole, depth_m) |> 
+  filter(!is.na(depth_m)) |> 
+  select(borehole, depth_m, sampling_device, temperature_o_c, dissolved_h2_u_m) |> 
+  gt::gt() |> 
+  gt::data_color(columns = "dissolved_h2_u_m", palette = "ggsci::red_material") |> 
+  gt::fmt_scientific(columns = "dissolved_h2_u_m") |> 
+  gt::cols_label(
+    depth_m = "Depth (mbs)",
+    sampling_device = "Sampling Device",
+    borehole = "Borehole",
+    temperature_o_c = "Temperature (C)",
+    dissolved_h2_u_m = "Dissolved H2 (µM)"
+  )
+gd_gt
+
+gd_gt |> gt::gtsave(filename = "data_output/om20_h2_data.html")
+```
