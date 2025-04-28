@@ -571,6 +571,10 @@ p_crds_diff3 <- crds_diff |>
     condition = paste(amendment, depth_str)
   ) |> 
   filter(source != "12C-Other") |> 
+  mutate(
+    amendment = factor(amendment, levels = c("formate", "acetate", "bicarbonate")),
+    condition = fct_reorder(condition, as.numeric(amendment))
+  ) |> 
   ggplot() +
   aes(
     x = fraction,
@@ -610,7 +614,7 @@ p_crds_diff3
 
 cowplot::save_plot(
   filename = "fig_output/CRDS_frac.pdf", plot = p_crds_diff3,
-  base_height = 5, base_width = 12
+  base_height = 4, base_width = 10
 )
 ```
 
