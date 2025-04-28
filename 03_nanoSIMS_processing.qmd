@@ -1251,9 +1251,30 @@ assim_data2 <- growth_data |>
     )
 ```
 
-#### Plot 3: Plot Carbon Assimilation Rate
+#### FIG 1: Plot Carbon Assimilation Rate
 
 ```{r}
+# Summarize the assim data
+assim_data_median <- assim_data |> 
+  filter(amendment != "negative control") |> 
+  filter(rC.fmol.d > 0, quantified) |>
+  mutate(
+    amendment = factor(amendment, levels = c("bicarbonate", "acetate", "formate")),
+    well = case_when(
+      well == "BA1B" ~ "BA1B (Mildly Alkaline)",
+      well == "BA4A" ~ "BA4A (Moderately Alkaline)",
+      well == "BA3A" ~ "BA3A (Hyperalkaline)",
+    ),
+    well = factor(well, levels = c("BA1B (Mildly Alkaline)", 
+                                   "BA4A (Moderately Alkaline)",
+                                   "BA3A (Hyperalkaline)")),
+    ) |> 
+  arrange(amendment) |> 
+  group_by(well, amendment) |> 
+  summarise(median_rC.fmol.d = median(rC.fmol.d, na.rm = TRUE)) |> 
+  ungroup()
+
+# Plot it!
 p_fmolC <- assim_data |> 
   filter(amendment != "negative control") |> 
   filter(rC.fmol.d > 0) |>
@@ -1266,19 +1287,25 @@ p_fmolC <- assim_data |>
     ),
     well = factor(well, levels = c("BA1B (Mildly Alkaline)", 
                                    "BA4A (Moderately Alkaline)",
-                                   "BA3A (Hyperalkaline)"))
+                                   "BA3A (Hyperalkaline)")),
     ) |> 
   arrange(amendment) |> 
   ggplot(
     aes(x = rC.fmol.d, y = depth_str)
   ) +
+  # plot the median line for each panel using summarized data above
+  geom_vline(
+    data = assim_data_median, 
+    aes(xintercept = median_rC.fmol.d),
+    linewidth = 0.7
+    ) +
   # Plot the non-quantified data as red bars
   geom_point(
     data = function(df) df |> filter(!quantified),
     shape = 124,
     position = position_nudge(y = -0.2),
     color = "red",
-    size = 1
+    size = 2
     ) +
   # Plot the quantified data as black bars
   geom_point(
@@ -1286,7 +1313,7 @@ p_fmolC <- assim_data |>
     shape = 124,
     position = position_nudge(y = -0.2),
     alpha = 0.7,
-    size = 1
+    size = 2
     ) +
   ggdist::stat_pointinterval(
     data = function(df) df |> filter(quantified),
@@ -1302,7 +1329,7 @@ p_fmolC <- assim_data |>
     .width = c(0.66, 0.95) # 66% and 95% CI
     ) +
   facet_grid(amendment~well) +
-  #scale_color_manual(values = amendment_palette) +
+  scale_color_manual(values = well_palette) +
   scale_x_log10(
     breaks = c(1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0),
     labels = scales::trans_format("log10", 
@@ -1312,11 +1339,13 @@ p_fmolC <- assim_data |>
   coord_cartesian(xlim = c(1e-6, 1e0)) +
   annotation_logticks(sides = "b") +
   labs(
-    x = latex2exp::TeX("fmol C $cell^{-1} \\; day^{-1}$"),
-    y = "",
-    color = "Carbon Source"
+    x = latex2exp::TeX("Cell-specific carbon assimilation rate (fmol C $cell^{-1} \\; day^{-1}$)"),
+    y = ""
   ) +
   theme_bw() +
+  guides(
+    color = "none"
+  ) +
   theme(
     panel.grid = element_blank(),
     panel.spacing = unit(0.1, "cm"),
@@ -1328,12 +1357,12 @@ p_fmolC <- assim_data |>
 
 p_fmolC
 
-# cowplot::save_plot(
-#   plot = p_fmolC,
-#   filename = "fig_output/cell_specific_assim.pdf",
-#   base_height = 8,
-#   base_width = 12
-# )
+cowplot::save_plot(
+  plot = p_fmolC,
+  filename = "fig_output/cell_specific_assim.pdf",
+  base_height = 7.5,
+  base_width = 11.5
+)
 ```
 
 test
