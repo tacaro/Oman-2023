@@ -15,7 +15,36 @@ library(tidyverse)
 ```{r}
 gd <- readxl::read_excel("data/Oman 2020 Gas Data/OM20_gas_data.xlsx") |> 
   janitor::clean_names() |> 
-  mutate(depth_m = as.numeric(depth_m))
+  mutate(depth_m = as.numeric(depth_m)) |> 
+  mutate(borehole = factor(
+    borehole, 
+    levels = c("WAB188", "BA1A", "BA1D", "BA1B", "BA4A", "BA3A"))
+    ) |> 
+  mutate(
+    sampling_device = factor(
+      sampling_device, 
+      levels = c("open-borehole pumping", "gas-tight tool"))
+    ) |> 
+  arrange(sampling_device, borehole, depth_m) |> 
+  filter(!is.na(depth_m)) |> 
+  select(borehole, depth_m, sampling_device, temperature_o_c, dissolved_h2_u_m) |> 
+  mutate(
+      )
+
+dilution_factor <- gd |> 
+  filter(borehole == "BA3A", depth_m %in% c(50, 55)) |> 
+  pull(dissolved_h2_u_m)
+
+dilution_factor <- dilution_factor[2]/dilution_factor[1]
+
+gdcorr <- gd |> 
+  mutate(
+    dissolved_h2_u_m_corr =
+      case_when(
+        sampling_device == "open-borehole pumping" ~  dissolved_h2_u_m * dilution_factor,
+      TRUE ~ dissolved_h2_u_m
+    )
+  )
 ```
 
 ```{r}
@@ -35,30 +64,25 @@ gd |>
 ```
 
 ```{r}
-gd_gt <- gd |> 
-  mutate(borehole = factor(
-    borehole, 
-    levels = c("WAB188", "BA1A", "BA1D", "BA1B", "BA4A", "BA3A"))
-    ) |> 
-  mutate(
-    sampling_device = factor(
-      sampling_device, 
-      levels = c("open-borehole pumping", "gas-tight tool"))
-    ) |> 
-  arrange(sampling_device, borehole, depth_m) |> 
-  filter(!is.na(depth_m)) |> 
-  select(borehole, depth_m, sampling_device, temperature_o_c, dissolved_h2_u_m) |> 
+
+gd_gt <- gdcorr |> 
   gt::gt() |> 
   gt::data_color(columns = "dissolved_h2_u_m", palette = "ggsci::red_material") |> 
-  gt::fmt_scientific(columns = "dissolved_h2_u_m") |> 
+  gt::data_color(columns = "dissolved_h2_u_m_corr", palette = "ggsci::blue_material") |> 
+  gt::fmt_scientific(columns = c(dissolved_h2_u_m, dissolved_h2_u_m_corr)) |> 
   gt::cols_label(
-    depth_m = "Depth (mbs)",
+    depth_m = "Depth (mbls)",
     sampling_device = "Sampling Device",
     borehole = "Borehole",
-    temperature_o_c = "Temperature (C)",
-    dissolved_h2_u_m = "Dissolved H2 (µM)"
-  )
+    temperature_o_c = "Temperature (˚C)",
+    dissolved_h2_u_m = gt::html("Dissolved H<sub>2</sub> (µM)"),
+    dissolved_h2_u_m_corr = gt::html("Dissolved H<sub>2</sub> (µM) [Corrected]")
+  ) |> 
+  gt::tab_footnote(
+    footnote = "Corrected by estimated dilution factor  (34.5X) from open-borehole pumping relative to gas-tight tool.",
+    locations = gt::cells_column_labels(columns = dissolved_h2_u_m_corr)
+    )
 gd_gt
 
-gd_gt |> gt::gtsave(filename = "data_output/om20_h2_data.html")
+gd_gt |> gt::gtsave(filename = "data_output/om20_h2_data_corr.html")
 ```
