@@ -60,7 +60,7 @@ p_density <- BA_density_porosity_full |>
   coord_cartesian(xlim = c(2.2, 3.2)) +
   coord_flip() +
   labs(
-    x = "Depth (mbs)",
+    x = "Depth (mbls)",
     color = "Core", well = "Core"
   ) +
   theme_bw() +
