@@ -56,7 +56,7 @@ p_pH <- om23 |>
   theme_classic() +
   labs(
     x = "pH",
-    y = "Depth (mbs)",
+    y = "Depth (mbls)",
     fill = ""
   ) +
   ggprism::theme_prism() +
@@ -145,7 +145,7 @@ om23 |>
 # Export GT
 
 ```{r}
-om23 |> 
+gt_om23 <- om23 |> 
   #filter(!well %in% c("NSHQ14", "BA1D"), depth %in% c(20, 150, 250, 270)) |> 
   mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A", "NSHQ14"))) |> 
   mutate(sample_type = case_when(
@@ -159,10 +159,10 @@ om23 |>
     cols_units(
       Conductivity = "µS cm^-1",
       Temperature = ":degree:C",
-      `Depth to water table` = "mbs",
-      Depth = "mbs"
+      `Depth to water table` = "mbls",
+      Depth = "mbls"
     ) |> 
-    cols_align(align = "center") |> 
+    cols_align(align = "center") 
   gt_om23
   
   gt_om23 |> gtsave(filename = "data_output/field_data_export.html")
