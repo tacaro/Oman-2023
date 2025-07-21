@@ -56,6 +56,7 @@ p_clines <- clines_wctls |>
     depth == 270 ~ "Deep (250/270m)"
   )) |> 
   mutate(depth_str = fct_rev(depth_str)) |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
   ggplot(
     aes(x = dt,
         y = conc.um,
@@ -96,4 +97,11 @@ cowplot::save_plot(
   plot = p_clines,
   base_height = 6, base_width = 7
 )
+```
+
+```{r}
+clines_wctls |> 
+  filter(dt == 0) |> 
+  select(well, depth, conc.um) |> 
+  writexl::write_xlsx("data_output/sulfide_data_t0.xlsx")
 ```
