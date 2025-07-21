@@ -1,0 +1,143 @@
+---
+title: "nanoSIMS visualization"
+format: html
+---
+
+# Setup
+
+```{python}
+import sims
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from matplotlib.pyplot import figure
+import cv2
+```
+
+# Import sims image
+
+
+```{python}
+s = sims.SIMS("data/nanoSIMS_example_images/BA4A-270-BIC_1.im")
+s.data
+```
+
+align the data using `sims.utils.align()` function
+
+
+```{python}
+s.data.loc['12C', 0]
+aligned_data, shifts = sims.utils.align(s)
+```
+
+pull out single ion layer and convert to np array
+
+
+```{python}
+aligned_12C = aligned_data.loc['12C'].to_numpy()
+aligned_12C
+np.shape(aligned_12C)
+```
+
+remove outer pixels that suffer from edge effects
+
+
+```{python}
+crop_margin = 20 # define the cropping dimensions
+trimmed_12C = aligned_12C[:, crop_margin:-crop_margin, crop_margin:-crop_margin].squeeze()
+trimmed_12C = np.mean(trimmed_12C, axis = 0)
+
+np.shape(trimmed_12C)
+```
+
+plot 12C
+
+
+```{python}
+fig1, ax1 = plt.subplots(figsize=(6, 6))
+plt.imshow(trimmed_12C)
+im1 = ax1.imshow(trimmed_12C, cmap="viridis")
+cbar1 = plt.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04, label="12C")
+plt.axis([0, 472, 0, 472])
+plt.plot()
+plt.show()
+plt.savefig("fig_output/BA4A_270_BIC_1_12C.png", dpi=300)
+```
+
+do the same for 13C
+
+
+```{python}
+s.data.loc["13C", 0]
+aligned_data, shifts = sims.utils.align(s)
+aligned_13C = aligned_data.loc['13C'].to_numpy()
+trimmed_13C = aligned_13C[:, crop_margin:-crop_margin, crop_margin:-crop_margin].squeeze()
+trimmed_13C = np.mean(trimmed_13C, axis = 0)
+
+np.shape(trimmed_13C)
+```
+
+
+```{python}
+fig1, ax1 = plt.subplots(figsize=(6, 6))
+plt.imshow(trimmed_13C)
+im1 = ax1.imshow(trimmed_13C, cmap="viridis")
+cbar1 = plt.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04, label="13C")
+plt.axis([0, 472, 0, 472])
+plt.plot()
+plt.show()
+plt.savefig("fig_output/BA4A_270_BIC_1_13C.png", dpi=300)
+```
+
+
+```{python}
+frac_13Cx12C = (trimmed_13C / (trimmed_12C + trimmed_13C))
+
+fig1, ax1 = plt.subplots(figsize=(6, 6))
+plt.imshow(frac_13Cx12C)
+im1 = ax1.imshow(frac_13Cx12C, cmap="viridis")
+cbar1 = plt.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04, label="13C")
+plt.axis([0, 472, 0, 472])
+plt.plot()
+plt.show()
+plt.savefig("fig_output/BA4A_270_BIC_1_13Cx12C.png", dpi=300)
+```
+
+nitrogen:
+```{python}
+s.data.loc["14N 12C", 0]
+aligned_data, shifts = sims.utils.align(s)
+aligned_14N = aligned_data.loc['14N 12C'].to_numpy()
+trimmed_14N = aligned_14N[:, crop_margin:-crop_margin, crop_margin:-crop_margin].squeeze()
+trimmed_14N = np.mean(trimmed_14N, axis = 0)
+
+np.shape(trimmed_14N)
+
+fig1, ax1 = plt.subplots(figsize=(6, 6))
+plt.imshow(trimmed_14N)
+im1 = ax1.imshow(trimmed_14N, cmap="viridis")
+cbar1 = plt.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04, label="14N12C")
+plt.axis([0, 472, 0, 472])
+plt.plot()
+plt.show()
+plt.savefig("fig_output/BA4A_270_BIC_1_14Nx12C.png", dpi=300)
+```
+
+roi
+
+```{python}
+# Read image (OpenCV loads images in BGR format)
+roi_array = cv2.imread("data/nanoSIMS_example_images/BA4A-270-BIC_1_ROI.png")[:, :, 2]
+roi_array = np.fliplr(roi_array)
+roi_array = roi_array[crop_margin:-crop_margin, crop_margin:-crop_margin].squeeze()
+binary_array = roi_array > 1
+
+fig1, ax1 = plt.subplots(figsize=(6, 6))
+plt.imshow(binary_array)
+im1 = ax1.imshow(binary_array, cmap="gray")
+cbar1 = plt.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04, label="ROI")
+# plt.axis([0, 472, 0, 472])
+plt.plot()
+plt.show()
+plt.savefig("fig_output/BA4A_270_BIC_1_ROI.png", dpi=300)
+```
