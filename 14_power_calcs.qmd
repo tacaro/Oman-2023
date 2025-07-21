@@ -212,25 +212,62 @@ assim_data_summary |>
 library(gt)
 mu_star_gt <- assim_data_summary |> 
   filter(mu_star.yr > 0) |> 
-  select(well, depth, amendment, mu_star.yr) |> 
+  select(well, depth, amendment, mu_star.yr, cell.C.fg, MSP.J_s_g) |> 
   group_by(well, depth, amendment) |> 
   dplyr::summarise(
-    mu_star_median = median(mu_star.yr)
+    mu_star_median = median(mu_star.yr),
+    fgC_biomass_median = median(cell.C.fg),
+    MSP_WgC_median = median(MSP.J_s_g)
   ) |> 
-  ungroup() |> 
-  pivot_wider(names_from = c(amendment), values_from = mu_star_median) |> 
+  ungroup() |>
+  pivot_wider(names_from = c(amendment), values_from = c(mu_star_median, fgC_biomass_median, MSP_WgC_median)) |> 
   gt::gt() |> 
   gt::cols_label(
     well = "Borehole",
-    depth = "Depth (mbs)"
+    depth = "Depth (mbls)",
+    mu_star_median_bicarbonate = "bicarbonate",
+    mu_star_median_acetate = "acetate",
+    mu_star_median_formate = "formate",
+    fgC_biomass_median_bicarbonate = "bicarbonate",
+    fgC_biomass_median_acetate = "acetate",
+    fgC_biomass_median_formate = "formate",
+    MSP_WgC_median_bicarbonate = "bicarbonate",
+    MSP_WgC_median_acetate = "acetate",
+    MSP_WgC_median_formate = "formate"
   ) |> 
-  gt::tab_spanner(columns = c(bicarbonate, acetate, formate), label = "µ* {{(yr^-1 )}}") |> 
-  gt::data_color(columns = -c(well, depth), palette = "Blues") |> 
-  gt::fmt_scientific(columns = c(bicarbonate, acetate, formate))
+  gt::tab_spanner(
+    columns = c(mu_star_median_bicarbonate, mu_star_median_acetate, 
+                mu_star_median_formate), 
+    label = "µ* {{(yr^-1 )}}"
+    ) |> 
+  gt::tab_spanner(
+    columns = c(fgC_biomass_median_bicarbonate, fgC_biomass_median_acetate, 
+                fgC_biomass_median_formate), 
+    label = "Cell-specific biomass (fg C)"
+    ) |> 
+  gt::tab_spanner(
+    columns = c(MSP_WgC_median_bicarbonate, MSP_WgC_median_acetate, 
+                MSP_WgC_median_formate), 
+    label = "MSP {{(W g C^-1 )}}"
+    ) |> 
+  gt::data_color(columns = c(fgC_biomass_median_bicarbonate,
+                             fgC_biomass_median_acetate, 
+                             fgC_biomass_median_formate), 
+                 palette = "Blues") |> 
+  gt::data_color(columns = c(MSP_WgC_median_bicarbonate, 
+                             MSP_WgC_median_acetate, 
+                             MSP_WgC_median_formate), 
+                 palette = "Greens") |> 
+  gt::data_color(columns = c(mu_star_median_bicarbonate, 
+                             mu_star_median_acetate, 
+                             mu_star_median_formate), 
+                 palette = "Reds") |> 
+  gt::fmt_scientific(columns = -c(well, depth)) |> 
+  gt::fmt_number(decimals = 1, columns = c(fgC_biomass_median_bicarbonate, fgC_biomass_median_acetate, fgC_biomass_median_formate))
   
 mu_star_gt
 
-gt::gtsave(data = mu_star_gt, filename = "data_output/mu_star.html")
+gt::gtsave(data = mu_star_gt, filename = "data_output/mu_star_etal.html")
 ```
 
 ```{r}
@@ -344,9 +381,11 @@ assim_metabolic <- assim_data_summary |>
     # Adjusted for mb abund
     VSP.J_yr_km3_ADJ = VSP.J_s_cm3_ADJ * 3.154e7 * 1e15, 
     # H2oxidation mass from VSP (Eq. 11)
-    MA_H2ox.tonnes_yr_km3 = VSP.J_yr_km3 / 2.393e10, 
+    #MA_H2ox.tonnes_yr_km3 = VSP.J_yr_km3 / 2.393e10, 
+    MA_H2ox.tonnes_yr_km3 = VSP.J_yr_km3 / 5.98e9, 
     # H2oxidation from VSP  (Eq. 11) adjusted for mb abund
-    MA_H2ox.tonnes_yr_km3_ADJ = VSP.J_yr_km3_ADJ / 2.393e10, 
+    #MA_H2ox.tonnes_yr_km3_ADJ = VSP.J_yr_km3_ADJ / 2.393e10, 
+    MA_H2ox.tonnes_yr_km3_ADJ = VSP.J_yr_km3_ADJ / 5.98e9, 
     # CH4 production from stoichiometry of methanogenesis:
     MA_CH4.tonnes_yr_km3 = tonne_h2_to_tonne_ch4(MA_H2ox.tonnes_yr_km3),
     # adjusted for mb abund
@@ -478,8 +517,8 @@ p_h2_ch4 <- assim_metabolic |>
   )
 p_h2_ch4
 
-cowplot::save_plot(plot = p_h2_ch4, filename = "fig_output/h2_ox_tonnes_ADJ.pdf",
-                    base_height = 6, base_width = 8)
+# cowplot::save_plot(plot = p_h2_ch4, filename = "fig_output/h2_ox_tonnes_ADJ.pdf",
+#                     base_height = 6, base_width = 8)
 ```
 
 Adjusted values:
@@ -525,7 +564,7 @@ gt_landscape <- assim_metabolic |>
 
 gt_landscape
 
-gt::gtsave(gt_landscape, filename = "data_output/gt_landscape.html")
+#gt::gtsave(gt_landscape, filename = "data_output/gt_landscape.html")
 ```
 
 Un-adjusted values:
