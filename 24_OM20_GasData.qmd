@@ -66,6 +66,8 @@ gd |>
 ```{r}
 
 gd_gt <- gdcorr |> 
+  mutate(borehole = factor(borehole, levels = c("WAB188", "BA1A", "BA1D", "BA1B", "BA4A", "BA3A"))) |> 
+  arrange(borehole) |> 
   gt::gt() |> 
   gt::data_color(columns = "dissolved_h2_u_m", palette = "ggsci::red_material") |> 
   gt::data_color(columns = "dissolved_h2_u_m_corr", palette = "ggsci::blue_material") |> 
