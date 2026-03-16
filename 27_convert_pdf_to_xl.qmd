@@ -1,0 +1,132 @@
+---
+title: "27 Convert PDF data to excel"
+format: pdf
+editor_options: 
+  chunk_output_type: console
+---
+
+# load packages
+
+need to use python pdfplumber here:
+```{python}
+import pdfplumber
+import pandas as pd
+
+with pdfplumber.open("data/Templeton 2021/page1.pdf") as pdf:
+    page = pdf.pages[0]  # adjust page number as needed
+    table = page.extract_tables()
+    page1 = pd.DataFrame(table[0][1:], columns=table[0][0])  # first row as header
+
+with pdfplumber.open("data/Templeton 2021/page2.pdf") as pdf:
+    page = pdf.pages[0]  # adjust page number as needed
+    table = page.extract_tables()
+    page2 = pd.DataFrame(table[0][1:], columns=table[0][0])  # first row as header
+
+with pdfplumber.open("data/Templeton 2021/page3.pdf") as pdf:
+    page = pdf.pages[0]  # adjust page number as needed
+    table = page.extract_tables()
+    page3 = pd.DataFrame(table[0][1:], columns=table[0][0])  # first row as header
+
+with pdfplumber.open("data/Templeton 2021/page4.pdf") as pdf:
+    page = pdf.pages[0]  # adjust page number as needed
+    table = page.extract_tables()
+    page4 = pd.DataFrame(table[0][1:], columns=table[0][0])  # first row as header
+
+page1.to_csv("data/Templeton 2021/page1.csv")
+page2.to_csv("data/Templeton 2021/page2.csv")
+page3.to_csv("data/Templeton 2021/page3.csv")
+page4.to_csv("data/Templeton 2021/page4.csv")
+```
+
+Clean up in R
+
+```{r}
+library(tidyverse)
+
+clean <- function(df) {
+  df |>
+    filter(!is.na(Hole)) |>
+    rename(borehole = Hole, depth_m = Depth, cells_per_g = Cell) |>
+    select(-`Invisible Blue`, -`...1`) |>
+    mutate(
+      cells_per_g = as.numeric(cells_per_g),
+      depth_m = as.numeric(depth_m)
+    )
+}
+
+page1 <- read_csv("data/Templeton 2021/page1.csv") |> clean()
+page2 <- read_csv("data/Templeton 2021/page2.csv") |> clean()
+page3 <- read_csv("data/Templeton 2021/page3.csv") |>
+  rename(
+    Hole = BA1B,
+    Depth = `300`,
+    Cell = `1.96E+06`,
+    `Invisible Blue` = `6.44E+05`
+  ) |>
+  clean()
+page4 <- read_csv("data/Templeton 2021/page4.csv") |> clean()
+
+
+df <- bind_rows(page1, page2, page3, page4) |>
+  filter(!is.na(cells_per_g), !is.na(depth_m)) |>
+  mutate(borehole = factor(borehole, levels = c("BA1B", "BA4A", "BA3A")))
+```
+
+
+```{r}
+library(scales)
+
+df_summary <- df |>
+  group_by(borehole) |>
+  dplyr::summarise(
+    cells_per_g_sd = sd(cells_per_g, na.rm = TRUE),
+    median_cells_per_g = median(cells_per_g)
+  )
+
+p_cell_counts <- df |>
+  ggplot(
+    aes(
+      x = cells_per_g,
+      y = depth_m,
+      fill = borehole
+    )
+  ) +
+  geom_point(shape = 21) +
+  geom_vline(data = df_summary, aes(xintercept = median_cells_per_g)) +
+  ggdist::stat_halfeye(
+    y = 10,
+    aes(x = cells_per_g)
+  ) +
+  coord_cartesian(ylim = c(-30, 400)) +
+  facet_wrap(vars(borehole), ncol = 1) +
+  scale_fill_brewer() +
+  scale_y_reverse() +
+  scale_x_log10(
+    labels = trans_format("log10", math_format(10^.x))
+  ) +
+  annotation_logticks(sides = "b") +
+  theme_minimal() +
+  labs(
+    x = "Cell Density (cell/g rock)",
+    y = "Depth (mbls)"
+  ) +
+  theme(
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "black"),
+    legend.position = "None",
+    strip.text = element_text(face = "bold")
+  )
+
+p_cell_counts
+
+# export df to data output
+df |> writexl::write_xlsx(path = "data_output/cell_count_export.xlsx")
+
+# save plot
+# ggsave(
+#   filename = "fig_output/cell_count_distributions.pdf",
+#   plot = p_cell_counts,
+#   width = 4,
+#   height = 5
+# )
+```

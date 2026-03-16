@@ -1,0 +1,54 @@
+---
+title: "Cell Counting"
+format: html
+editor: source
+editor_options: 
+  chunk_output_type: console
+---
+
+## Import Libraries
+
+```{r}
+library(tidyverse) # Easily Install and Load the 'Tidyverse', CRAN v2.0.0
+library(gt) # Easily Create Presentation-Ready Display Tables, CRAN v0.10.0
+source("source/color_palettes.R")
+
+```
+
+
+```{r}
+df <- readxl::read_excel("data/Nikon-Widefield/cell_counts_tidy_with_post.xlsx")
+```
+
+
+```{r}
+p_cell_count <- df |>
+  mutate(condition = fct_rev(condition)) |>
+  ggplot(
+    aes(
+      x = condition,
+      y = cells_per_ml,
+      fill = condition
+    )
+  ) +
+  geom_col(color = "black", position = position_dodge()) +
+  facet_wrap(well ~ depth) +
+  scale_y_log10() +
+  theme_minimal() +
+  labs(
+    x = "",
+    y = "Cells per mL"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+p_cell_count
+
+ggsave(
+  filename = "fig_output/cell_count_summary_plot.pdf",
+  plot = p_cell_count,
+  height = 6,
+  width = 5
+)
+```
