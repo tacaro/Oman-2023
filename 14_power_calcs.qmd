@@ -1,7 +1,6 @@
 ---
 title: "14: Power Calculations"
 format: pdf
-editor: visual
 editor_options: 
   chunk_output_type: console
 include-in-header: \usepackage[makeroom]{cancel}
@@ -11,8 +10,10 @@ bibliography: references.bib
 ## Setup
 
 ```{r}
-rm(list=ls()) # clear the environment
+rm(list = ls()) # clear the environment
 library(tidyverse)
+library(furrr) # parallel purrr
+library(sensitivity) # for Sobol variance decomposition (optional)
 source("source/theme_om23.R")
 source("source/color_palettes.R")
 ```
@@ -21,21 +22,33 @@ Load files
 
 ```{r}
 # 13C-nanoSIMS-SIP dataset from cache
-assim_data <- read_rds("cache/SIMS_assim_data.RDS") |> 
+assim_data <- read_rds("cache/SIMS_assim_data.RDS") |>
   # trim out columns not needed for this exercise:
-  select(sample_id, well, depth, amendment, F13C, mu.d, 
-         gen.d, K, cell.C.fg, rC.fmol.d)
+  select(
+    sample_id,
+    well,
+    depth,
+    amendment,
+    F13C,
+    mu.d,
+    gen.d,
+    K2,
+    cell.C.fg,
+    rC.fmol.d2,
+    quantified
+  ) |>
+  filter(quantified)
 
 # Hoehler et al. 2023 SI dataset
-msp_lit_data <- 
-  readxl::read_excel("data/Hoehler_SI_Data1.xlsx", sheet = 2) |> 
+msp_lit_data <-
+  readxl::read_excel("data/Hoehler_SI_Data1.xlsx", sheet = 2) |>
   mutate(
     MSP_W_gC = `Metabolic Rate (W, at 25C)` / `Carbon Mass (g)`
   )
 
 # Inspect the Hoehler et al. data
-msp_lit_data |> 
-  filter(!is.na(Kingdom)) |> 
+msp_lit_data |>
+  filter(!is.na(Kingdom)) |>
   ggplot(
     aes(
       x = `Carbon Mass (g)`,
@@ -134,11 +147,10 @@ $$
 ```{r}
 #| label: calculate mu star and MSP
 
-
-assim_data_summary <- assim_data |> 
+assim_data_summary <- assim_data |>
   filter(amendment != "negative control") |> # remove negative control data
-  select(-c(F13C, K, sample_id)) |> # clean up columns
-  rename(fmolC_per_cell_day = rC.fmol.d, TG.d = gen.d) |> # rename to intuitive name
+  select(-c(F13C, K2, sample_id)) |> # clean up columns
+  rename(fmolC_per_cell_day = rC.fmol.d2, TG.d = gen.d) |> # rename to intuitive name
   mutate(
     gC_biomass = cell.C.fg / 1e15, # grams of cell biomass from femtograms
     fg_C_per_cell_day = fmolC_per_cell_day * 12.011, # fg assimilated from fmol
@@ -152,18 +164,23 @@ assim_data_summary <- assim_data |>
     MSP.J_s_g = mu_star.sec / 0.00003,
     MSP.J_s_g_lower = mu_star.sec / (0.00003 - 0.000017),
     MSP.J_s_g_upper = mu_star.sec / (0.00003 + 0.000017),
-  ) |> 
+  ) |>
   # Factor our metadata for better plotting:
   mutate(
     well = factor(well, levels = c("BA1B", "BA4A", "BA3A")),
-    depth_str = factor(case_when(
-      depth == 20 ~ "Shallow (20m)",
-      depth == 150 ~ "Intermediate (150m)",
-      depth == 250 ~ "Deep (250/270m)",
-      depth == 270 ~ "Deep (250/270m)"),
+    depth_str = factor(
+      case_when(
+        depth == 20 ~ "Shallow (20m)",
+        depth == 150 ~ "Intermediate (150m)",
+        depth == 250 ~ "Deep (250/270m)",
+        depth == 270 ~ "Deep (250/270m)"
+      ),
       levels = c("Deep (250/270m)", "Intermediate (150m)", "Shallow (20m)")
     ),
-    amendment = factor(amendment, levels = c("bicarbonate", "acetate", "formate"))
+    amendment = factor(
+      amendment,
+      levels = c("bicarbonate", "acetate", "formate")
+    )
   )
 ```
 
@@ -173,8 +190,8 @@ assim_data_summary <- assim_data |>
 #| label: plot mu star (carbon turnover rate)
 #| code-fold: true
 
-assim_data_summary |> 
-  filter(mu_star.yr > 0) |> 
+assim_data_summary |>
+  filter(mu_star.yr > 0) |>
   ggplot(
     aes(
       x = mu_star.yr,
@@ -190,16 +207,16 @@ assim_data_summary |>
   scale_x_log10(
     breaks = c(1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1),
     labels = scales::trans_format("log10", scales::math_format(10^.x)),
-    ) +
+  ) +
   coord_cartesian(xlim = c(1e-4, 1e1)) +
   annotation_logticks(sides = "b") +
   scale_color_manual(values = well_palette) +
-  facet_grid(amendment~well) +
+  facet_grid(amendment ~ well) +
   labs(
     x = latex2exp::TeX("Mass-specific carbon turnover rate $[yr^{-1}]$"),
     y = ""
   ) +
-  theme_om23() + 
+  theme_om23() +
   theme(
     panel.spacing = unit(0.15, "cm"),
     legend.position = "None"
@@ -210,18 +227,21 @@ assim_data_summary |>
 
 ```{r}
 library(gt)
-mu_star_gt <- assim_data_summary |> 
-  filter(mu_star.yr > 0) |> 
-  select(well, depth, amendment, mu_star.yr, cell.C.fg, MSP.J_s_g) |> 
-  group_by(well, depth, amendment) |> 
+mu_star_gt <- assim_data_summary |>
+  filter(mu_star.yr > 0) |>
+  select(well, depth, amendment, mu_star.yr, cell.C.fg, MSP.J_s_g) |>
+  group_by(well, depth, amendment) |>
   dplyr::summarise(
     mu_star_median = median(mu_star.yr),
     fgC_biomass_median = median(cell.C.fg),
     MSP_WgC_median = median(MSP.J_s_g)
-  ) |> 
+  ) |>
   ungroup() |>
-  pivot_wider(names_from = c(amendment), values_from = c(mu_star_median, fgC_biomass_median, MSP_WgC_median)) |> 
-  gt::gt() |> 
+  pivot_wider(
+    names_from = c(amendment),
+    values_from = c(mu_star_median, fgC_biomass_median, MSP_WgC_median)
+  ) |>
+  gt::gt() |>
   gt::cols_label(
     well = "Borehole",
     depth = "Depth (mbls)",
@@ -234,37 +254,65 @@ mu_star_gt <- assim_data_summary |>
     MSP_WgC_median_bicarbonate = "bicarbonate",
     MSP_WgC_median_acetate = "acetate",
     MSP_WgC_median_formate = "formate"
-  ) |> 
+  ) |>
   gt::tab_spanner(
-    columns = c(mu_star_median_bicarbonate, mu_star_median_acetate, 
-                mu_star_median_formate), 
+    columns = c(
+      mu_star_median_bicarbonate,
+      mu_star_median_acetate,
+      mu_star_median_formate
+    ),
     label = "µ* {{(yr^-1 )}}"
-    ) |> 
+  ) |>
   gt::tab_spanner(
-    columns = c(fgC_biomass_median_bicarbonate, fgC_biomass_median_acetate, 
-                fgC_biomass_median_formate), 
+    columns = c(
+      fgC_biomass_median_bicarbonate,
+      fgC_biomass_median_acetate,
+      fgC_biomass_median_formate
+    ),
     label = "Cell-specific biomass (fg C)"
-    ) |> 
+  ) |>
   gt::tab_spanner(
-    columns = c(MSP_WgC_median_bicarbonate, MSP_WgC_median_acetate, 
-                MSP_WgC_median_formate), 
+    columns = c(
+      MSP_WgC_median_bicarbonate,
+      MSP_WgC_median_acetate,
+      MSP_WgC_median_formate
+    ),
     label = "MSP {{(W g C^-1 )}}"
-    ) |> 
-  gt::data_color(columns = c(fgC_biomass_median_bicarbonate,
-                             fgC_biomass_median_acetate, 
-                             fgC_biomass_median_formate), 
-                 palette = "Blues") |> 
-  gt::data_color(columns = c(MSP_WgC_median_bicarbonate, 
-                             MSP_WgC_median_acetate, 
-                             MSP_WgC_median_formate), 
-                 palette = "Greens") |> 
-  gt::data_color(columns = c(mu_star_median_bicarbonate, 
-                             mu_star_median_acetate, 
-                             mu_star_median_formate), 
-                 palette = "Reds") |> 
-  gt::fmt_scientific(columns = -c(well, depth)) |> 
-  gt::fmt_number(decimals = 1, columns = c(fgC_biomass_median_bicarbonate, fgC_biomass_median_acetate, fgC_biomass_median_formate))
-  
+  ) |>
+  gt::data_color(
+    columns = c(
+      fgC_biomass_median_bicarbonate,
+      fgC_biomass_median_acetate,
+      fgC_biomass_median_formate
+    ),
+    palette = "Blues"
+  ) |>
+  gt::data_color(
+    columns = c(
+      MSP_WgC_median_bicarbonate,
+      MSP_WgC_median_acetate,
+      MSP_WgC_median_formate
+    ),
+    palette = "Greens"
+  ) |>
+  gt::data_color(
+    columns = c(
+      mu_star_median_bicarbonate,
+      mu_star_median_acetate,
+      mu_star_median_formate
+    ),
+    palette = "Reds"
+  ) |>
+  gt::fmt_scientific(columns = -c(well, depth)) |>
+  gt::fmt_number(
+    decimals = 1,
+    columns = c(
+      fgC_biomass_median_bicarbonate,
+      fgC_biomass_median_acetate,
+      fgC_biomass_median_formate
+    )
+  )
+
 mu_star_gt
 
 gt::gtsave(data = mu_star_gt, filename = "data_output/mu_star_etal.html")
@@ -274,8 +322,8 @@ gt::gtsave(data = mu_star_gt, filename = "data_output/mu_star_etal.html")
 #| label: plot MSP
 #| code-fold: true
 
-p_MSP <- assim_data_summary |> 
-  filter(mu_star.yr > 0) |> 
+p_MSP <- assim_data_summary |>
+  filter(mu_star.yr > 0) |>
   ggplot(
     aes(
       x = MSP.J_s_g,
@@ -285,15 +333,17 @@ p_MSP <- assim_data_summary |>
   ) +
   ggdist::stat_pointinterval(point_interval = "mean_qi") +
   annotation_logticks(sides = "b") +
-  scale_x_log10(breaks = c(1e-5, 1e-3, 1e-1),
-                labels = scales::trans_format("log10", scales::math_format(10^.x))) +
+  scale_x_log10(
+    breaks = c(1e-5, 1e-3, 1e-1),
+    labels = scales::trans_format("log10", scales::math_format(10^.x))
+  ) +
   scale_color_manual(values = well_palette) +
-  facet_grid(well~amendment) +
+  facet_grid(well ~ amendment) +
   labs(
     x = latex2exp::TeX("MSP $[W \\cdot gC_{biomass}^{-1}]$"),
     y = ""
   ) +
-  theme_om23() + 
+  theme_om23() +
   theme(
     panel.spacing = unit(0.15, "cm"),
     legend.position = "None"
@@ -347,7 +397,7 @@ $$
 
 ```{r}
 tonne_h2_to_tonne_ch4 <- function(H2_tonnes) {
-  ch4_tonnes = H2_tonnes * 1e6 * (1/2.01568) * (1/4) * (16.04) * (1/1e6)
+  ch4_tonnes = H2_tonnes * 1e6 * (1 / 2.01568) * (1 / 4) * (16.04) * (1 / 1e6)
   return(ch4_tonnes)
 }
 ```
@@ -356,60 +406,59 @@ tonne_h2_to_tonne_ch4 <- function(H2_tonnes) {
 #| label: calculate H2 oxidation rate
 
 # import methanobacterium abundance
-mb_abund <- readxl::read_excel("data_output/methanobacterium_abund.xlsx") |> 
-  mutate(depth = parse_number(depth_m)) |> select(well, depth, sum_abund)
+mb_abund <- readxl::read_excel("data_output/methanobacterium_abund.xlsx") |>
+  mutate(depth = parse_number(depth_m)) |>
+  select(well, depth, sum_abund)
 
-assim_metabolic <- assim_data_summary |> 
-  left_join(mb_abund, by = join_by(well, depth)) |> 
-  ## Example calculation
-  # bind_rows(
-  #   tibble(MSP.J_s_g = 1E-3,
-  #          cell.C.fg = 67,
-  #          sum_abund = 0.11)
-  # ) |> 
+assim_metabolic <- assim_data_summary |>
+  # add in the methanogen abundance for each well and depth
+  left_join(mb_abund, by = join_by(well, depth)) |>
   mutate(
     # convert cell biomass in fg to g
     cell.C.g = cell.C.fg / 1e15,
     # calculate cell-specific power (Eq. 8)
-    CSP.J_s_cell = MSP.J_s_g * cell.C.g, 
+    CSP.J_s_cell = MSP.J_s_g * cell.C.g,
     # calculate VSP (Eq. 9) (cells to volume)
-    VSP.J_s_cm3 = CSP.J_s_cell * 1e5, 
+    VSP.J_s_cm3 = CSP.J_s_cell * 1e5,
     # adjusted for mb rel abund
-    VSP.J_s_cm3_ADJ = CSP.J_s_cell * 1e5 * sum_abund, 
+    VSP.J_s_cm3_ADJ = CSP.J_s_cell * 1e5 * sum_abund,
     # VSP unit scaling (Eq. 10): J/yr/km3 from J/sec/cm
-    VSP.J_yr_km3 = VSP.J_s_cm3 * 3.154e7 * 1e15, 
+    VSP.J_yr_km3 = VSP.J_s_cm3 * 3.154e7 * 1e15,
     # Adjusted for mb abund
-    VSP.J_yr_km3_ADJ = VSP.J_s_cm3_ADJ * 3.154e7 * 1e15, 
+    VSP.J_yr_km3_ADJ = VSP.J_s_cm3_ADJ * 3.154e7 * 1e15,
     # H2oxidation mass from VSP (Eq. 11)
-    #MA_H2ox.tonnes_yr_km3 = VSP.J_yr_km3 / 2.393e10, 
-    MA_H2ox.tonnes_yr_km3 = VSP.J_yr_km3 / 5.98e9, 
+    MA_H2ox.tonnes_yr_km3 = VSP.J_yr_km3 / 2.393e10,
+    MA_H2ox.tonnes_yr_km3.lower = VSP.J_yr_km3 / 1.26e10, # less favorable del G value
     # H2oxidation from VSP  (Eq. 11) adjusted for mb abund
-    #MA_H2ox.tonnes_yr_km3_ADJ = VSP.J_yr_km3_ADJ / 2.393e10, 
-    MA_H2ox.tonnes_yr_km3_ADJ = VSP.J_yr_km3_ADJ / 5.98e9, 
+    MA_H2ox.tonnes_yr_km3_ADJ = VSP.J_yr_km3_ADJ / 2.393e10,
+    MA_H2ox.tonnes_yr_km3_ADJ.lower = VSP.J_yr_km3_ADJ / 1.26e10, # less favorable del G value
     # CH4 production from stoichiometry of methanogenesis:
     MA_CH4.tonnes_yr_km3 = tonne_h2_to_tonne_ch4(MA_H2ox.tonnes_yr_km3),
     # adjusted for mb abund
-    MA_CH4.tonnes_yr_km3_ADJ = tonne_h2_to_tonne_ch4(MA_H2ox.tonnes_yr_km3_ADJ) 
+    MA_CH4.tonnes_yr_km3_ADJ = tonne_h2_to_tonne_ch4(MA_H2ox.tonnes_yr_km3_ADJ),
+    MA_CH4.tonnes_yr_km3_ADJ.lower = tonne_h2_to_tonne_ch4(
+      MA_H2ox.tonnes_yr_km3_ADJ.lower
+    )
   )
 
 
 ```
 
-### H2 vs. CH4 stoich
+### Check H2 vs. CH4 stoich
 
 ```{r}
 library(ggpmisc)
 
-assim_metabolic |> 
+assim_metabolic |>
   ggplot(
     aes(
-      x = MA_H2ox.tonnes_yr_km3,
-      y = MA_CH4.tonnes_yr_km3
+      x = MA_H2ox.tonnes_yr_km3_ADJ.lower,
+      y = MA_CH4.tonnes_yr_km3_ADJ.lower
     )
   ) +
   geom_smooth(method = "lm") +
   geom_point() +
-  coord_cartesian(xlim = c(0,1200), ylim = c(0, 1200)) +
+  coord_cartesian(xlim = c(0, 1200), ylim = c(0, 1200)) +
   geom_abline(slope = 1, linetype = "dotted") +
   labs(
     x = "H2 oxidized (tonnes/yr/km3)",
@@ -427,29 +476,42 @@ assim_metabolic |>
 ```{r}
 
 # histogram of VSP
-assim_metabolic |> 
+p_MSP_hist <- assim_metabolic |>
   ggplot(
     aes(x = VSP.J_yr_km3_ADJ)
   ) +
   coord_cartesian(expand = FALSE) +
-  geom_histogram(fill = "blue", alpha = 0.5) +
-  geom_histogram(aes(x = VSP.J_yr_km3), fill = "red", alpha = 0.5) +
+  geom_histogram(fill = "blue", alpha = 0.5, color = "black") +
+  geom_histogram(
+    aes(x = VSP.J_yr_km3),
+    fill = "red",
+    alpha = 0.5,
+    color = "black"
+  ) +
   geom_vline(xintercept = 9.5E10, color = "black", linetype = "dashed") +
   scale_x_log10() +
   annotation_logticks(sides = "b") +
   theme_classic() +
   labs(
-    x = "VSP (J/yr/km3)",
-    caption = "Blue: adjusted for Methanobacterium relative abundance \n
-    Red: Assumes all cells are Methanobacterium \n
-    Dashed line is VSP in Templeton et al. 2024"
+    x = latex2exp::TeX("VSP $J \\cdot (yr \\cdot km^3)^{-1}$"),
+    y = "Count",
+    caption = "Blue: Assumes only Methanobacterium are hydrogenotrophic (adjusted by 16S relative abundance) \n
+    Red: Assumes all cells are hydrogenotrophic \n
+    Dashed line is VSP reported in Templeton et al. 2024"
   )
+p_MSP_hist
+
+# ggsave(
+#   filename = "fig_output/MSP_hist.pdf",
+#   plot = p_MSP_hist,
+#   height = 5, width = 5
+# )
 ```
 
 ### histogram of turnover rates
 
 ```{r}
-assim_metabolic |> 
+assim_metabolic |>
   ggplot(
     aes(
       x = mu_star.yr
@@ -458,7 +520,8 @@ assim_metabolic |>
   geom_histogram() +
   scale_x_log10(
     labels = scales::trans_format("log10", scales::math_format(10^.x)),
-    breaks = c(1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1)) +
+    breaks = c(1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1)
+  ) +
   annotation_logticks(sides = "b") +
   theme_classic() +
   labs(
@@ -466,23 +529,27 @@ assim_metabolic |>
   )
 ```
 
-### Plot H2 and CH4 rates
+### FIG - Plot H2 and CH4 rates
 
 ```{r}
 #| label: plot H2 oxidation and CH4 production rate
 #| code-fold: true
 
-p_h2_ch4 <- assim_metabolic |> 
-  filter(mu_star.yr > 0) |> 
-  filter(amendment == "bicarbonate") |> 
-  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
-  pivot_longer(cols = c(MA_CH4.tonnes_yr_km3_ADJ, MA_H2ox.tonnes_yr_km3_ADJ),
-               values_to = "tonne_km3_yr",
-               names_to = "Gas") |> 
+p_h2_ch4 <- assim_metabolic |>
+  filter(mu_star.yr > 0) |>
+  filter(amendment == "bicarbonate") |>
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |>
+  pivot_longer(
+    cols = c(MA_CH4.tonnes_yr_km3_ADJ.lower, MA_H2ox.tonnes_yr_km3_ADJ.lower),
+    values_to = "tonne_km3_yr",
+    names_to = "Gas"
+  ) |>
   mutate(
-    Gas = case_when(Gas == "MA_CH4.tonnes_yr_km3_ADJ" ~ "Methane",
-                    Gas == "MA_H2ox.tonnes_yr_km3_ADJ" ~ "Hydrogen")
-  ) |> 
+    Gas = case_when(
+      Gas == "MA_CH4.tonnes_yr_km3_ADJ.lower" ~ "Methane",
+      Gas == "MA_H2ox.tonnes_yr_km3_ADJ.lower" ~ "Hydrogen"
+    )
+  ) |>
   ggplot(
     aes(
       x = tonne_km3_yr,
@@ -492,88 +559,194 @@ p_h2_ch4 <- assim_metabolic |>
   ) +
   ggdist::stat_halfeye(
     slab_alpha = 1,
-    position = position_dodge(width = 0.5)) +
+    slab_color = "black",
+    slab_linewidth = 0.25,
+    position = position_dodge(width = 0.5)
+  ) +
   annotation_logticks(sides = "b") +
   scale_x_log10(
     labels = scales::trans_format("log10", scales::math_format(10^.x)),
-    breaks = c(1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3)) +
+    breaks = c(1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3)
+  ) +
   coord_cartesian(xlim = c(1e-4, 1e3)) +
-  scale_fill_manual(values = well_palette) +
-  facet_grid(well~Gas) +
+  scale_fill_brewer() +
+  facet_grid(well ~ Gas) +
   labs(
-    x = latex2exp::TeX("$tonnes \\cdot (km^3 \\cdot yr)^{-1}$"),
+    x = latex2exp::TeX("Flux $(tonnes \\cdot (km^3 \\cdot yr)^{-1})$"),
     y = "",
     #caption = "Red line indicates estimate of Templeton et al. (2024): 3.95"
   ) +
-  theme_bw() + 
+  theme_bw() +
   theme(
     panel.spacing = unit(0.15, "cm"),
     legend.position.inside = c(0.2, 0.5),
     legend.position = "None",
     panel.grid.minor = element_blank(),
-    panel.grid.major.y = element_blank(),
+    panel.grid.major.x = element_line(color = "lightgray", linewidth = 0.25),
+    panel.grid.major.y = element_line(color = "black", linewidth = 0.25),
     strip.background = element_rect(fill = "black"),
     strip.text = element_text(color = "white")
   )
 p_h2_ch4
 
-# cowplot::save_plot(plot = p_h2_ch4, filename = "fig_output/h2_ox_tonnes_ADJ.pdf",
-#                     base_height = 6, base_width = 8)
+cowplot::save_plot(
+  plot = p_h2_ch4,
+  filename = "fig_output/h2_ox_tonnes_ADJ2.pdf",
+  base_height = 6,
+  base_width = 8
+)
+```
+
+### Plot the different ∆G
+
+```{r}
+p_h2_ch4_compare <- assim_metabolic |>
+  filter(mu_star.yr > 0) |>
+  filter(amendment == "bicarbonate") |>
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |>
+  pivot_longer(
+    cols = c(
+      MA_CH4.tonnes_yr_km3_ADJ,
+      MA_H2ox.tonnes_yr_km3_ADJ,
+      MA_CH4.tonnes_yr_km3_ADJ.lower,
+      MA_H2ox.tonnes_yr_km3_ADJ.lower
+    ),
+    values_to = "tonne_km3_yr",
+    names_to = "Gas"
+  ) |>
+  mutate(
+    dG = case_when(
+      str_detect(Gas, ".lower") ~ "-25.1 kJ/mol",
+      TRUE ~ "-47.8 kJ/mol"
+    ),
+    Gas = case_when(
+      Gas == "MA_CH4.tonnes_yr_km3_ADJ.lower" ~ "Methane",
+      Gas == "MA_CH4.tonnes_yr_km3_ADJ" ~ "Methane",
+      Gas == "MA_H2ox.tonnes_yr_km3_ADJ.lower" ~ "Hydrogen",
+      Gas == "MA_H2ox.tonnes_yr_km3_ADJ" ~ "Hydrogen"
+    )
+  ) |>
+  ggplot(
+    aes(
+      x = tonne_km3_yr,
+      y = depth_str,
+      fill = dG
+    )
+  ) +
+  ggdist::stat_halfeye(
+    slab_alpha = 1,
+    slab_color = "black",
+    slab_linewidth = 0.25,
+    position = position_dodge(width = 0.75)
+  ) +
+  annotation_logticks(sides = "b") +
+  scale_x_log10(
+    labels = scales::trans_format("log10", scales::math_format(10^.x)),
+    breaks = c(1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3)
+  ) +
+  coord_cartesian(xlim = c(1e-4, 1e3)) +
+  scale_fill_brewer(palette = "Accent") +
+  facet_grid(well ~ Gas) +
+  labs(
+    x = latex2exp::TeX("Flux $(tonnes \\cdot (km^3 \\cdot yr)^{-1})$"),
+    y = "",
+    fill = "∆G"
+    #caption = "Red line indicates estimate of Templeton et al. (2024): 3.95"
+  ) +
+  theme_bw() +
+  theme(
+    panel.spacing = unit(0.15, "cm"),
+    legend.position.inside = c(0.2, 0.5),
+    legend.position = "bottom",
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_line(color = "lightgray", linewidth = 0.25),
+    panel.grid.major.y = element_line(color = "black", linewidth = 0.25),
+    strip.background = element_rect(fill = "black"),
+    strip.text = element_text(color = "white")
+  )
+p_h2_ch4_compare
+
+ggsave(
+  filename = "fig_output/delta_G_differences.png",
+  plot = p_h2_ch4_compare,
+  height = 6,
+  width = 6
+)
 ```
 
 Adjusted values:
 
 ```{r}
-gt_landscape <- assim_metabolic |> 
-  filter(mu_star.yr > 0) |> 
-  filter(amendment == "bicarbonate") |> 
-  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |> 
-  group_by(well, depth_str) |> 
+gt_landscape <- assim_metabolic |>
+  filter(mu_star.yr > 0) |>
+  filter(amendment == "bicarbonate") |>
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |>
+  group_by(well, depth_str) |>
   summarise(
-    median_h2_ox = median(MA_H2ox.tonnes_yr_km3_ADJ, na.rm = TRUE),
-    median_ch4_prod = median(MA_CH4.tonnes_yr_km3_ADJ, na.rm = TRUE),
-    max_h2_ox = max(MA_H2ox.tonnes_yr_km3_ADJ, na.rm = TRUE),
-    min_h2_ox = min(MA_H2ox.tonnes_yr_km3_ADJ, na.rm = TRUE),
-    max_ch4_prod = max(MA_CH4.tonnes_yr_km3_ADJ, na.rm = TRUE),
-    min_ch4_prod = min(MA_CH4.tonnes_yr_km3_ADJ, na.rm = TRUE),
-  ) |> 
-  select(well, depth_str, median_h2_ox, min_h2_ox, 
-         max_h2_ox, median_ch4_prod, min_ch4_prod, max_ch4_prod) |>
-  arrange(desc(depth_str)) |> 
-  
-  gt::gt() |> 
-  gt::tab_spanner(
-    label = "{{CH_4 Produced tonnes km^-1 yr^-1}}",
-    columns = c(median_ch4_prod, min_ch4_prod, max_ch4_prod)
-  ) |> 
-  gt::tab_spanner(
-    label = "{{H_2 tonnes km^-1 yr^-1}}",
-    columns = c(median_h2_ox, min_h2_ox, max_h2_ox)
-  ) |> 
-  gt::data_color(columns = (-depth_str), palette = "Blues") |> 
+    median_h2_ox = median(MA_H2ox.tonnes_yr_km3_ADJ.lower, na.rm = TRUE),
+    median_ch4_prod = median(MA_CH4.tonnes_yr_km3_ADJ.lower, na.rm = TRUE),
+    max_h2_ox = max(MA_H2ox.tonnes_yr_km3_ADJ.lower, na.rm = TRUE),
+    min_h2_ox = min(MA_H2ox.tonnes_yr_km3_ADJ.lower, na.rm = TRUE),
+    max_ch4_prod = max(MA_CH4.tonnes_yr_km3_ADJ.lower, na.rm = TRUE),
+    min_ch4_prod = min(MA_CH4.tonnes_yr_km3_ADJ.lower, na.rm = TRUE),
+    median_h2_ox_upper = median(MA_H2ox.tonnes_yr_km3_ADJ, na.rm = TRUE),
+    median_ch4_prod_upper = median(MA_CH4.tonnes_yr_km3_ADJ, na.rm = TRUE),
+    max_h2_ox_upper = max(MA_H2ox.tonnes_yr_km3_ADJ, na.rm = TRUE),
+    min_h2_ox_upper = min(MA_H2ox.tonnes_yr_km3_ADJ, na.rm = TRUE),
+    max_ch4_prod_upper = max(MA_CH4.tonnes_yr_km3_ADJ, na.rm = TRUE),
+    min_ch4_prod_upper = min(MA_CH4.tonnes_yr_km3_ADJ, na.rm = TRUE),
+  ) |>
+  select(
+    well,
+    depth_str,
+    median_h2_ox,
+    min_h2_ox,
+    max_h2_ox,
+    median_ch4_prod,
+    min_ch4_prod,
+    max_ch4_prod,
+    median_h2_ox_upper,
+    min_h2_ox_upper,
+    max_h2_ox_upper,
+    median_ch4_prod_upper,
+    min_ch4_prod_upper,
+    max_ch4_prod_upper
+  ) |>
+  arrange(desc(depth_str)) |>
+
+  gt::gt() |>
+  # gt::tab_spanner(
+  #   label = "{{CH_4 Produced tonnes km^-1 yr^-1}}",
+  #   columns = c(median_ch4_prod, min_ch4_prod, max_ch4_prod)
+  # ) |>
+  # gt::tab_spanner(
+  #   label = "{{H_2 tonnes km^-1 yr^-1}}",
+  #   columns = c(median_h2_ox, min_h2_ox, max_h2_ox)
+  # ) |>
+  gt::data_color(columns = (-depth_str), palette = "Blues") |>
   gt::cols_label(
-    depth_str = "",
-    median_h2_ox = "median",
-    median_ch4_prod = "median",
-    max_h2_ox = "Max",
-    max_ch4_prod = "Max",
-    min_ch4_prod = "Min",
-    min_h2_ox = "Min"
-  ) |> 
+    # depth_str = "",
+    # median_h2_ox = "median",
+    # median_ch4_prod = "median",
+    # max_h2_ox = "Max",
+    # max_ch4_prod = "Max",
+    # min_ch4_prod = "Min",
+    # min_h2_ox = "Min"
+  ) |>
   gt::fmt_scientific()
 
 gt_landscape
 
-#gt::gtsave(gt_landscape, filename = "data_output/gt_landscape.html")
+#gt::gtsave(gt_landscape, filename = "data_output/gt_landscape_lower.html")
 ```
 
 Un-adjusted values:
 
 ```{r}
-assim_metabolic |> 
-  filter(mu_star.yr > 0) |> 
-  filter(amendment == "bicarbonate") |> 
-  group_by(well, depth_str) |> 
+assim_metabolic |>
+  filter(mu_star.yr > 0) |>
+  filter(amendment == "bicarbonate") |>
+  group_by(well, depth_str) |>
   summarise(
     median_h2_ox = median(MA_H2ox.tonnes_yr_km3, na.rm = TRUE),
     median_ch4_prod = median(MA_CH4.tonnes_yr_km3, na.rm = TRUE),
@@ -581,19 +754,28 @@ assim_metabolic |>
     min_h2_ox = min(MA_H2ox.tonnes_yr_km3, na.rm = TRUE),
     max_ch4_prod = max(MA_CH4.tonnes_yr_km3, na.rm = TRUE),
     min_ch4_prod = min(MA_CH4.tonnes_yr_km3, na.rm = TRUE),
-  ) |> 
-  select(well, depth_str, median_h2_ox, min_h2_ox, max_h2_ox, median_ch4_prod, min_ch4_prod, max_ch4_prod) |> 
-  arrange(desc(depth_str)) |> 
-  gt::gt() |> 
+  ) |>
+  select(
+    well,
+    depth_str,
+    median_h2_ox,
+    min_h2_ox,
+    max_h2_ox,
+    median_ch4_prod,
+    min_ch4_prod,
+    max_ch4_prod
+  ) |>
+  arrange(desc(depth_str)) |>
+  gt::gt() |>
   gt::tab_spanner(
     label = "{{CH_4 Produced tonnes km^-1 yr^-1}}",
     columns = c(median_ch4_prod, min_ch4_prod, max_ch4_prod)
-  ) |> 
+  ) |>
   gt::tab_spanner(
     label = "{{H_2 tonnes km^-1 yr^-1}}",
     columns = c(median_h2_ox, min_h2_ox, max_h2_ox)
-  ) |> 
-  gt::data_color(columns = (-depth_str), palette = "Blues") |> 
+  ) |>
+  gt::data_color(columns = (-depth_str), palette = "Blues") |>
   gt::cols_label(
     depth_str = "",
     median_h2_ox = "median",
@@ -602,7 +784,7 @@ assim_metabolic |>
     max_ch4_prod = "Max",
     min_ch4_prod = "Min",
     min_h2_ox = "Min"
-  ) |> 
+  ) |>
   gt::fmt_scientific()
 ```
 
@@ -647,7 +829,13 @@ The only unknown multiplication factor in this is cell-to-carbon ratio. But what
 ```{r}
 mean_cell_mass_fgC <- assim_data |> select(cell.C.fg) |> pull() |> mean()
 mean_cell_mass_gC <- mean_cell_mass_fgC * 1E-15 # convert from fg to g
-paste("The mean cell biomass measured in this study is", round(mean_cell_mass_fgC, 1), "fg or", mean_cell_mass_gC, "g C")
+paste(
+  "The mean cell biomass measured in this study is",
+  round(mean_cell_mass_fgC, 1),
+  "fg or",
+  mean_cell_mass_gC,
+  "g C"
+)
 
 
 ```
@@ -658,29 +846,30 @@ Tabulate Mark Lever's energy requirements and convert to MSP
 # have it be a function
 energy_turnover_to_MSP <- function(kJ_per_cell_yr, cell_mass_gC) {
   J_per_cell_yr = kJ_per_cell_yr * 1000 # 1000 J per kJ
-  J_per_gC_yr = J_per_cell_yr * (1/cell_mass_gC)
-  W_gC = J_per_gC_yr * (1/31536000) # 31536000 seconds per year
+  J_per_gC_yr = J_per_cell_yr * (1 / cell_mass_gC)
+  W_gC = J_per_gC_yr * (1 / 31536000) # 31536000 seconds per year
   return(W_gC)
 }
 
 ## Scenario Values at 35˚C:
 # Scenario 1: 5E-17 kJ/cell/yr
-# 
+#
 # Scenario 2: 2E-16 kJ/cell/yr
-# 
+#
 # Scenario 3: 9E-16 kJ/cell/yr
-# 
+#
 # Scenario 4: 5E-15 kJ/cell/yr
 
 lever_limits <- tibble(
-  scenario = c(1,2,3,4),
+  scenario = c(1, 2, 3, 4),
   kJ_per_cell_yr = c(5E-17, 2E-16, 9E-16, 5E-15)
-) |> 
+) |>
   # add scenario values:
   # apply the conversion we describe above:
   mutate(
     MSP_W_gC = energy_turnover_to_MSP(
-      kJ_per_cell_yr = kJ_per_cell_yr, cell_mass_gC = mean_cell_mass_gC
+      kJ_per_cell_yr = kJ_per_cell_yr,
+      cell_mass_gC = mean_cell_mass_gC
     )
   )
 ```
@@ -689,11 +878,12 @@ Read in Tori's data
 
 ```{r}
 # Read in Tori's data and rename to match our column headers
-litreview <- readxl::read_excel("data/Hoehler_Fig3data.xlsx") |> 
-  rename(source = `...1`,
-         MSP.J_s_g = `MSP (W/gC)`,
-         mu_star.yr = `Biomass C Turnover, Observed (yr-1)`
-         ) |> 
+litreview <- readxl::read_excel("data/Hoehler_Fig3data.xlsx") |>
+  rename(
+    source = `...1`,
+    MSP.J_s_g = `MSP (W/gC)`,
+    mu_star.yr = `Biomass C Turnover, Observed (yr-1)`
+  ) |>
   filter(!is.na(source))
 ```
 
@@ -711,7 +901,7 @@ $$
 # on biomass turnover in the rock hosted biosphere (RHB)
 rhb_turnover <- readxl::read_excel(
   "data/Templeton_and_Caro_AREPS_SI_data.xlsx"
-) |> 
+) |>
   mutate(
     # calculate turnover rate from generation time
     mu_star.day = log(2) / gen_time_d_mean,
@@ -719,7 +909,7 @@ rhb_turnover <- readxl::read_excel(
     mu_star.sec = mu_star.day / 86400, # 86400 seconds per day
     # Eq. 7:
     MSP.J_s_g = mu_star.sec / 0.00003
-  ) |> 
+  ) |>
   filter(Source != "LABEL")
 ```
 
@@ -728,24 +918,24 @@ rhb_turnover <- readxl::read_excel(
 Combine Hoehler et al. literature data with our literature data:
 
 ```{r}
-hoehler_sediment_data <- readxl::read_excel("data/Sediment MSP.xlsx") |> 
-  rename("MSP.J_s_g" = `MSP (W/gC)`,
-         "depth_cm" = `Depth (cm)`) |> 
-  select(-c(note, Citation)) |> 
+hoehler_sediment_data <- readxl::read_excel("data/Sediment MSP.xlsx") |>
+  rename("MSP.J_s_g" = `MSP (W/gC)`, "depth_cm" = `Depth (cm)`) |>
+  select(-c(note, Citation)) |>
   mutate(
     group = case_when(
       depth_cm >= 100 ~ "Marine Sediments (>= 1 m depth)",
       depth_cm < 100 ~ "Marine Sediments (< 1 m depth)"
     )
-    )
+  )
 
-litreview_combined <- litreview |> 
+litreview_combined <- litreview |>
   # Add in templeton & Caro rock hosted biosphere data
-  bind_rows(rhb_turnover |> 
-              filter(Source != "LABEL") |> 
-              rename(group = Source) |> 
-              select(group, mu_star.yr, MSP.J_s_g)
-              ) |> 
+  bind_rows(
+    rhb_turnover |>
+      filter(Source != "LABEL") |>
+      rename(group = Source) |>
+      select(group, mu_star.yr, MSP.J_s_g)
+  ) |>
   # clean up names
   mutate(
     group = case_when(
@@ -758,12 +948,12 @@ litreview_combined <- litreview |>
       str_detect(group, "Terrestrial PP") ~ "Terrestrial Primary Production",
       TRUE ~ group
     )
-  ) |> 
+  ) |>
   # add in Hoehler sediment data
-  bind_rows(hoehler_sediment_data) |> 
-  group_by(group) |> 
-  mutate(median_msp = median(MSP.J_s_g, na.rm = TRUE)) |> 
-  ungroup() |> 
+  bind_rows(hoehler_sediment_data) |>
+  group_by(group) |>
+  mutate(median_msp = median(MSP.J_s_g, na.rm = TRUE)) |>
+  ungroup() |>
   mutate(group = fct_rev(fct_reorder(group, median_msp)))
 
 
@@ -772,7 +962,7 @@ litreview_combined <- litreview |>
 Inspect sediment data
 
 ```{r}
-hoehler_sediment_data |> 
+hoehler_sediment_data |>
   ggplot(
     aes(
       x = MSP.J_s_g,
@@ -796,9 +986,9 @@ se <- function(vector) {
 }
 
 
-assim_interval <- assim_metabolic |> 
-  filter(MSP.J_s_g > 0, mu_star.sec > 0) |> 
-  group_by(well, depth, amendment) |> 
+assim_interval <- assim_metabolic |>
+  filter(MSP.J_s_g > 0, mu_star.sec > 0) |>
+  group_by(well, depth, amendment) |>
   summarize(
     MSP.J_s_g_mn = mean(MSP.J_s_g, na.rm = TRUE),
     MSP.J_s_g_lower = mean(MSP.J_s_g_lower, na.rm = TRUE),
@@ -809,31 +999,80 @@ assim_interval <- assim_metabolic |>
     mu_star.yr_upper = mean(mu_star.yr, na.rm = TRUE) + se(mu_star.yr)
   )
 
-scenario1_MSP <- lever_limits |> filter(scenario == 1) |> select(MSP_W_gC) |> pull()
-scenario2_MSP <- lever_limits |> filter(scenario == 2) |> select(MSP_W_gC) |> pull()
-scenario3_MSP <- lever_limits |> filter(scenario == 3) |> select(MSP_W_gC) |> pull()
-scenario4_MSP <- lever_limits |> filter(scenario == 4) |> select(MSP_W_gC) |> pull()
+scenario1_MSP <- lever_limits |>
+  filter(scenario == 1) |>
+  select(MSP_W_gC) |>
+  pull()
+scenario2_MSP <- lever_limits |>
+  filter(scenario == 2) |>
+  select(MSP_W_gC) |>
+  pull()
+scenario3_MSP <- lever_limits |>
+  filter(scenario == 3) |>
+  select(MSP_W_gC) |>
+  pull()
+scenario4_MSP <- lever_limits |>
+  filter(scenario == 4) |>
+  select(MSP_W_gC) |>
+  pull()
 
-p_MSP_vs_mustar <- assim_interval |> 
+
+p_MSP_vs_mustar <- assim_interval |>
   ggplot(
-    aes(
-    )
+    aes()
   ) +
   # plot MSP limits from Lever et al. (2015)
-  annotate(geom = "rect", ymin = 1e-10, ymax = 1e10, xmin = 1e-10, alpha = 0.5,
-           xmax = scenario4_MSP, color = "black", fill = "#ba0000") +
-  annotate(geom = "rect", ymin = 1e-10, ymax = 1e10, xmin = 1e-10, alpha = 0.3,
-           xmax = scenario3_MSP, color = "black", fill = "#ba0000") +
-  annotate(geom = "rect", ymin = 1e-10, ymax = 1e10, xmin = 1e-10, alpha = 0.3,
-           xmax = scenario2_MSP, color = "black", fill = "#ba0000") +
-  annotate(geom = "rect", ymin = 1e-10, ymax = 1e10, xmin = 1e-10, alpha = 1,
-           xmax = scenario1_MSP, color = "black", fill = "#ba0000") +
+  annotate(
+    geom = "rect",
+    ymin = 1e-10,
+    ymax = 1e10,
+    xmin = 1e-10,
+    alpha = 0.5,
+    xmax = scenario4_MSP,
+    color = "black",
+    fill = "#ba0000"
+  ) +
+  annotate(
+    geom = "rect",
+    ymin = 1e-10,
+    ymax = 1e10,
+    xmin = 1e-10,
+    alpha = 0.3,
+    xmax = scenario3_MSP,
+    color = "black",
+    fill = "#ba0000"
+  ) +
+  annotate(
+    geom = "rect",
+    ymin = 1e-10,
+    ymax = 1e10,
+    xmin = 1e-10,
+    alpha = 0.3,
+    xmax = scenario2_MSP,
+    color = "black",
+    fill = "#ba0000"
+  ) +
+  annotate(
+    geom = "rect",
+    ymin = 1e-10,
+    ymax = 1e10,
+    xmin = 1e-10,
+    alpha = 1,
+    xmax = scenario1_MSP,
+    color = "black",
+    fill = "#ba0000"
+  ) +
   # Plot lit review data:
-  geom_point(data = litreview,
-             aes(
-               x = MSP.J_s_g, y = mu_star.yr,
-               shape = group, color = group),
-             size = 2) +
+  geom_point(
+    data = litreview,
+    aes(
+      x = MSP.J_s_g,
+      y = mu_star.yr,
+      shape = group,
+      color = group
+    ),
+    size = 2
+  ) +
   # Plot this study
   geom_pointrange(
     aes(
@@ -843,7 +1082,8 @@ p_MSP_vs_mustar <- assim_interval |>
       y = mu_star.yr_mn,
       fill = well
     ),
-    shape = 21, color = "black"
+    shape = 21,
+    color = "black"
   ) +
   geom_pointrange(
     aes(
@@ -852,7 +1092,9 @@ p_MSP_vs_mustar <- assim_interval |>
       ymin = mu_star.yr_lower,
       ymax = mu_star.yr_upper,
       fill = well
-    ), shape = 21, color = "black"
+    ),
+    shape = 21,
+    color = "black"
   ) +
   # Scale axes and color
   scale_x_log10(
@@ -860,14 +1102,14 @@ p_MSP_vs_mustar <- assim_interval |>
     labels = scales::trans_format("log10", scales::math_format(10^.x)),
     breaks = c(1e-8, 1e-6, 1e-4, 1e-2, 1e0, 1e2),
     sec.axis = dup_axis(name = "")
-    ) +
+  ) +
   scale_y_log10(
     #limits = c(1e-6, 1e5),
     labels = scales::trans_format("log10", scales::math_format(10^.x)),
     breaks = c(1e-6, 1e-4, 1e-2, 1e0, 1e2, 1e4)
-    ) +
+  ) +
   coord_cartesian(xlim = c(1e-8, 1e2), ylim = c(1e-6, 1e5)) +
-  ggthemes::scale_color_colorblind() +
+  scale_color_brewer() +
   scale_fill_manual(values = well_palette) +
   scale_shape_manual(values = c(15, 16, 17, 18, 19, 4)) +
   # Theme options:
@@ -895,38 +1137,88 @@ p_MSP_vs_mustar
 # )
 ```
 
-# Plot as a density curve:
+# FIG - Plot as a density curve
 
 ```{r}
 # Panel B
-p_MSP_density <- assim_metabolic |> 
+p_MSP_density <- assim_metabolic |>
   rename(group = well) |>
-  mutate(group = factor(group, levels = c("BA4A", "BA1B", "BA3A"))) |> 
+  mutate(group = fct_rev(factor(group, levels = c("BA3A", "BA4A", "BA1B")))) |>
   filter(MSP.J_s_g > 0) |>
+  filter(amendment == "bicarbonate") |>
   ggplot(
     aes(
       x = MSP.J_s_g,
+      y = depth_str,
       fill = group,
       color = group,
-      y = group
+      #y = group
     )
   ) +
   scale_x_log10(
     breaks = c(1e-8, 1e-6, 1e-4, 1e-2, 1e0, 1e2),
     labels = scales::trans_format("log10", scales::math_format(10^.x))
-    ) +
-  annotate(geom = "rect", ymin = -Inf, ymax = Inf, xmin = 1e-10, alpha = 0.5,
-           xmax = scenario4_MSP, color = "black", fill = "#ba0000") +
-  annotate(geom = "rect", ymin = -Inf, ymax = Inf, xmin = 1e-10, alpha = 0.3,
-           xmax = scenario3_MSP, color = "black", fill = "#ba0000") +
-  annotate(geom = "rect", ymin = -Inf, ymax = Inf, xmin = 1e-10, alpha = 0.3,
-           xmax = scenario2_MSP, color = "black", fill = "#ba0000") +
-  annotate(geom = "rect", ymin = -Inf, ymax = Inf, xmin = 1e-10, alpha = 1,
-           xmax = scenario1_MSP, color = "black", fill = "#ba0000") +
-  ggridges::geom_density_ridges(color = "black", alpha = 0.5, scale = 0.9) +
-  ggdist::stat_pointinterval(color = "black") +
-  scale_fill_manual(values = c("#3471ab", "#dc2522", "#48a44b")) +
+  ) +
+  annotate(
+    geom = "rect",
+    ymin = -Inf,
+    ymax = Inf,
+    xmin = 1e-10,
+    alpha = 0.5,
+    xmax = scenario4_MSP,
+    color = "black",
+    fill = "#ba0000"
+  ) +
+  annotate(
+    geom = "rect",
+    ymin = -Inf,
+    ymax = Inf,
+    xmin = 1e-10,
+    alpha = 0.3,
+    xmax = scenario3_MSP,
+    color = "black",
+    fill = "#ba0000"
+  ) +
+  annotate(
+    geom = "rect",
+    ymin = -Inf,
+    ymax = Inf,
+    xmin = 1e-10,
+    alpha = 0.3,
+    xmax = scenario2_MSP,
+    color = "black",
+    fill = "#ba0000"
+  ) +
+  annotate(
+    geom = "rect",
+    ymin = -Inf,
+    ymax = Inf,
+    xmin = 1e-10,
+    alpha = 1,
+    xmax = scenario1_MSP,
+    color = "black",
+    fill = "#ba0000"
+  ) +
+  #ggridges::geom_density_ridges(color = "black", alpha = 0.5, scale = 0.9) +
+  ggdist::stat_pointinterval(
+    color = "black"
+    #slab_alpha = 1,
+    #slab_color = "black",
+    #slab_linewidth = 0.25,
+    #interval_color = "black",
+    #point_color = "black",
+    #position = position_dodge(width = 0.5)
+  ) +
+  geom_point(
+    position = position_nudge(y = -0.25),
+    color = "black",
+    shape = 108
+  ) +
+  #scale_fill_manual(values = c("#3471ab", "#dc2522", "#48a44b")) +
+  scale_fill_brewer(direction = 1) +
+  scale_color_brewer(direction = 1) +
   coord_cartesian(xlim = c(1e-8, 1e2)) +
+  facet_grid(group ~ .) +
   annotation_logticks(side = "b") +
   theme_classic() +
   labs(
@@ -940,25 +1232,67 @@ p_MSP_density <- assim_metabolic |>
     axis.title.y = element_blank(),
     legend.position = "None",
     panel.grid.major.x = element_line(color = "lightgray", linewidth = 0.25),
-    panel.grid.major.y = element_line(color = "black", linewidth = 0.25)
+    panel.grid.major.y = element_line(color = "black", linewidth = 0.25),
+    strip.background = element_blank(),
+    strip.text = element_text(face = "bold")
   )
 p_MSP_density
 
 
 # Panel A
-p_litreview <- litreview_combined |> 
+p_litreview <- litreview_combined |>
   ggplot(
     aes(
       x = MSP.J_s_g,
       y = group,
       fill = group,
       color = group
-      )
-    ) +
+    )
+  ) +
+  annotate(
+    geom = "rect",
+    ymin = -Inf,
+    ymax = Inf,
+    xmin = 1e-10,
+    alpha = 0.5,
+    xmax = scenario4_MSP,
+    color = "black",
+    fill = "#ba0000"
+  ) +
+  annotate(
+    geom = "rect",
+    ymin = -Inf,
+    ymax = Inf,
+    xmin = 1e-10,
+    alpha = 0.3,
+    xmax = scenario3_MSP,
+    color = "black",
+    fill = "#ba0000"
+  ) +
+  annotate(
+    geom = "rect",
+    ymin = -Inf,
+    ymax = Inf,
+    xmin = 1e-10,
+    alpha = 0.3,
+    xmax = scenario2_MSP,
+    color = "black",
+    fill = "#ba0000"
+  ) +
+  annotate(
+    geom = "rect",
+    ymin = -Inf,
+    ymax = Inf,
+    xmin = 1e-10,
+    alpha = 1,
+    xmax = scenario1_MSP,
+    color = "black",
+    fill = "#ba0000"
+  ) +
   scale_x_log10(
-      sec.axis = dup_axis(),
-      breaks = c(1e-8, 1e-6, 1e-4, 1e-2, 1e0, 1e2),
-      labels = scales::trans_format("log10", scales::math_format(10^.x))
+    sec.axis = dup_axis(),
+    breaks = c(1e-8, 1e-6, 1e-4, 1e-2, 1e0, 1e2),
+    labels = scales::trans_format("log10", scales::math_format(10^.x))
   ) +
   #geom_point(shape = 21, color = "black", size = 3) +
   ggdist::stat_pointinterval(color = "black") +
@@ -966,12 +1300,15 @@ p_litreview <- litreview_combined |>
   coord_cartesian(xlim = c(1e-8, 1e2), ylim = c(0, 9)) +
   annotation_logticks(side = "t") +
   theme_classic() +
+  labs(
+    x = "Mass-Specific Power (W /(g C))"
+  ) +
   theme(
     legend.position = "None",
     axis.line.y = element_blank(),
     axis.ticks.y = element_blank(),
     axis.title.y = element_blank(),
-    axis.title.x = element_blank(),
+    axis.title.x.bottom = element_blank(),
     axis.line.x.bottom = element_blank(),
     axis.text.x.bottom = element_blank(),
     axis.ticks.x.bottom = element_blank(),
@@ -980,15 +1317,101 @@ p_litreview <- litreview_combined |>
 p_litreview
 
 p_MSP_dens_combined <- cowplot::plot_grid(
-  p_litreview, p_MSP_density, ncol = 1,
-  rel_heights = c(0.25, 0.75), align = "hv", axis = "tblr"
-  )
+  p_litreview,
+  p_MSP_density,
+  ncol = 1,
+  rel_heights = c(0.3, 0.70),
+  align = "hv",
+  axis = "tblr"
+)
 p_MSP_dens_combined
 
-cowplot::save_plot(plot = p_MSP_dens_combined,
-                   base_height = 9, base_width = 11,
-                   filename = "fig_output/MSP_literature_density2.pdf"
-                   )
+cowplot::save_plot(
+  plot = p_MSP_dens_combined,
+  base_height = 9,
+  base_width = 11,
+  filename = "fig_output/MSP_literature_density3.pdf"
+)
+```
+
+# GTs
+
+maximum MSP
+
+```{r}
+# 0.04304061
+assim_metabolic |> pull(MSP.J_s_g) |> max(na.rm = TRUE)
+
+# 2.370904e-06
+assim_metabolic |> pull(MSP.J_s_g) |> min(na.rm = TRUE)
+
+```
+
+median MSP
+
+```{r}
+
+assim_metabolic |>
+  filter(well == "BA1B") |>
+  pull(MSP.J_s_g) |>
+  median(na.rm = TRUE)
+# BA1B: 0.001084223
+
+assim_metabolic |>
+  filter(well == "BA4A") |>
+  pull(MSP.J_s_g) |>
+  median(na.rm = TRUE)
+# BA4A: 0.005493318
+
+assim_metabolic |>
+  filter(well == "BA3A") |>
+  pull(MSP.J_s_g) |>
+  median(na.rm = TRUE)
+# BA3A: 0.000222675
+```
+
+median MSP by well and depth
+
+```{r}
+assim_metabolic |>
+  group_by(well, depth) |>
+  summarise(
+    median_MSP = median(MSP.J_s_g, na.rm = TRUE)
+  ) |>
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |>
+  arrange(well) |>
+  gt() |>
+  cols_label(
+    depth = "Depth (mbls)",
+    median_MSP = "Median MSP (W/g C)"
+  ) |>
+  data_color(columns = median_MSP, palette = "Blues") |>
+  fmt_scientific(columns = median_MSP) |>
+  gtsave(filename = "data_output/median_MSP.html")
+```
+
+```{r}
+gt_flux <- assim_metabolic |>
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))) |>
+  filter(amendment == "bicarbonate") |>
+  group_by(well, depth) |>
+  summarise(
+    median_H2 = median(MA_H2ox.tonnes_yr_km3_ADJ.lower, na.rm = TRUE),
+    median_CH4 = median(MA_CH4.tonnes_yr_km3_ADJ.lower, na.rm = TRUE)
+  ) |>
+  gt() |>
+  cols_label(median_CH4 = "Methane Produced", depth = "Depth (mbls)") |>
+  cols_units(
+    median_CH4 = "(tonnes yr^-1 km^-1 )",
+    median_H2 = "(tonnes yr^-1 km^-1 )",
+  ) |>
+  data_color(columns = c(median_CH4, median_H2), palette = "Blues") |>
+  fmt_scientific(columns = c(median_CH4, median_H2))
+
+gt_flux
+
+gtsave(gt_flux, filename = "data_output/h2ch4_table2.html")
+
 ```
 
 # Export
@@ -996,29 +1419,29 @@ cowplot::save_plot(plot = p_MSP_dens_combined,
 MSP
 
 ```{r}
-
-
-median_MSP <- assim_metabolic |> 
-  group_by(well, depth) |> 
+median_MSP <- assim_metabolic |>
+  group_by(well, depth) |>
   summarize(
     all = median(MSP.J_s_g, na.rm = TRUE)
   )
 
-median_MSP_C <- assim_metabolic |> 
-  group_by(well, depth, amendment) |> 
-  summarize(median_MSP_C = median(MSP.J_s_g, na.rm = TRUE)) |> 
-  pivot_wider(names_from ="amendment", values_from = "median_MSP_C") |> 
-  left_join(median_MSP, by = c("well", "depth")) |> 
+median_MSP_C <- assim_metabolic |>
+  group_by(well, depth, amendment) |>
+  summarize(median_MSP_C = median(MSP.J_s_g, na.rm = TRUE)) |>
+  pivot_wider(names_from = "amendment", values_from = "median_MSP_C") |>
+  left_join(median_MSP, by = c("well", "depth")) |>
   ungroup()
 
-gt_MSP <- median_MSP_C |> 
-  gt::gt(groupname_col = "well") |> 
-  gt::cols_label(all = "median") |> 
-  gt::fmt_scientific(columns = -depth) |> 
-  gt::tab_spanner(columns = c(bicarbonate, acetate, formate, all), 
-                  label = "MSP (W (g C){{^-1}}") |> 
-  gt::cols_align("center") |> 
-  gt::data_color(columns = all, palette = "viridis") |> 
+gt_MSP <- median_MSP_C |>
+  gt::gt(groupname_col = "well") |>
+  gt::cols_label(all = "median") |>
+  gt::fmt_scientific(columns = -depth) |>
+  gt::tab_spanner(
+    columns = c(bicarbonate, acetate, formate, all),
+    label = "MSP (W (g C){{^-1}}"
+  ) |>
+  gt::cols_align("center") |>
+  gt::data_color(columns = all, palette = "viridis") |>
   gt::summary_rows(
     columns = -depth,
     fn = list("median"),
@@ -1030,4 +1453,589 @@ gt_MSP
 
 gt_MSP |> gt::gtsave("data_output/MSP.html")
 median_MSP_C |> writexl::write_xlsx("data_output/MSP.xlsx")
+```
+
+# FIG - Full Plot
+
+```{r}
+combined_plot <- cowplot::plot_grid(
+  p_MSP_dens_combined,
+  p_h2_ch4,
+  labels = c("A", "B")
+)
+combined_plot
+
+cowplot::save_plot(
+  plot = combined_plot,
+  filename = "fig_output/MSP_combined_plot_scaled2.pdf",
+  dpi = 300,
+  base_height = 7,
+  base_width = 12.5
+)
+```
+
+
+# Response to reviewers
+
+Per reviewer suggestion, we will estimate uncertainty with a Monte Carlo approach. We use Monte Carlo because bootstrapping requires data we do not have at the parameter level. Because bootstrapping resamples from *observed* data to estimate uncertainty in a statistic, it is the proper option when uncertainty comes from sampling variability in measurements e.g., if we had 50 replicate cell density measurements per well and wanted to propagate this empirical variability through.
+
+Monte Carlo is preferred because our uncertainty terms aren't empirical distributions, they're epistemic uncertainties (things we don't know precisely.) Our three key uncertainties:
+
+- Habitable depth: we have a heuristically-reasoned range (300 m - 1 km) but we do not have replicate (or any) measurements of this value.
+
+- ∆G: We have two theoretical endmembers from fluid geochemistry, not observed values.
+
+- Cell density uncertainty: we are going off of estimated cell densities from Templeton et al. 2021, these were not sampled as a part of our dataset.
+
+## run montecarlo
+
+```{r}
+# import cell density data from data output folder
+# script to extract this data is in file no. 27!
+cell_density_data <- readxl::read_excel("data_output/cell_count_export.xlsx")
+
+plan(multisession)
+
+# ── Constants ─────────────────────────────────────────────────────────────────
+
+N_SIM <- 10000
+
+PARAMS <- list(
+  delta_G = list(dist = "uniform", min = 1.26e10, max = 2.393e10),
+  hab_depth_km = list(dist = "uniform", min = 0.3, max = 1.0),
+  stim_factor = list(dist = "uniform", min = 1, max = 50),
+  cell_density_log_sd_default = 0.5,
+  msp_log_sd_default = 0.5,
+  cell_c_log_sd_default = 0.5
+)
+
+# ── Compute per-well/depth empirical distributions for MSP and cell carbon ────
+
+assim_params <- assim_data_summary |>
+  group_by(well, depth) |>
+  summarise(
+    MSP_mean_log10 = mean(log10(MSP.J_s_g), na.rm = TRUE),
+    MSP_sd_log10 = sd(log10(MSP.J_s_g), na.rm = TRUE),
+    cellC_mean_log10 = mean(log10(cell.C.fg), na.rm = TRUE),
+    cellC_sd_log10 = sd(log10(cell.C.fg), na.rm = TRUE),
+    n_cells = n(),
+    .groups = "drop"
+  ) |>
+  mutate(
+    # fallback SD for well/depths with single cell measurements
+    MSP_sd_log10 = if_else(
+      n_cells < 2,
+      PARAMS$msp_log_sd_default,
+      MSP_sd_log10
+    ),
+    cellC_sd_log10 = if_else(
+      n_cells < 2,
+      PARAMS$cell_c_log_sd_default,
+      cellC_sd_log10
+    )
+  )
+
+# ── Compute per-well log-normal parameters from replicate cell counts ─────────
+
+rock_density_g_cm3 <- 2.7
+
+cell_density_params <- cell_density_data |>
+  rename(well = borehole) |>
+  mutate(cells_per_cm3 = cells_per_g * rock_density_g_cm3) |>
+  group_by(well) |>
+  summarise(
+    cell_dens_mean_log10 = mean(log10(cells_per_cm3), na.rm = TRUE),
+    cell_dens_sd_log10 = sd(log10(cells_per_cm3), na.rm = TRUE),
+    n_replicates = n(),
+    .groups = "drop"
+  ) |>
+  mutate(
+    cell_dens_sd_log10 = if_else(
+      n_replicates < 2,
+      PARAMS$cell_density_log_sd_default,
+      cell_dens_sd_log10
+    )
+  )
+
+# ── Monte Carlo sampler ───────────────────────────────────────────────────────
+
+sample_params <- function(
+  n = N_SIM,
+  cell_dens_mean_log10 = 5,
+  cell_dens_sd_log10 = PARAMS$cell_density_log_sd_default,
+  MSP_mean_log10 = -12,
+  MSP_sd_log10 = PARAMS$msp_log_sd_default,
+  cellC_mean_log10 = 1,
+  cellC_sd_log10 = PARAMS$cell_c_log_sd_default
+) {
+  tibble(
+    sim_id = seq_len(n),
+    delta_G = runif(n, PARAMS$delta_G$min, PARAMS$delta_G$max),
+    hab_depth_km = runif(n, PARAMS$hab_depth_km$min, PARAMS$hab_depth_km$max),
+    stim_factor = runif(n, PARAMS$stim_factor$min, PARAMS$stim_factor$max),
+    cell_dens_mult = 10^rnorm(
+      n,
+      mean = cell_dens_mean_log10,
+      sd = cell_dens_sd_log10
+    ),
+    MSP.J_s_g = 10^rnorm(n, mean = MSP_mean_log10, sd = MSP_sd_log10),
+    cell.C.fg = 10^rnorm(n, mean = cellC_mean_log10, sd = cellC_sd_log10)
+  )
+}
+
+# ── Core calculation (vectorized over simulations) ────────────────────────────
+
+calc_methanogenesis <- function(
+  MSP.J_s_g,
+  cell.C.fg,
+  sum_abund,
+  delta_G,
+  hab_depth_km,
+  stim_factor,
+  cell_dens_mult
+) {
+  # correct MSP for stimulation effect
+  MSP.J_s_g_corrected <- MSP.J_s_g / stim_factor
+
+  # cell carbon per cell: fg -> g
+  cell.C.g <- cell.C.fg / 1e15
+
+  # cell-specific power: J/s/cell
+  CSP.J_s_cell <- MSP.J_s_g_corrected * cell.C.g
+
+  # volumetric power: J/s/cm3
+  VSP.J_s_cm3 <- CSP.J_s_cell * cell_dens_mult
+  VSP.J_s_cm3_ADJ <- CSP.J_s_cell * cell_dens_mult * sum_abund
+
+  # unit conversion: J/s/cm3 -> J/yr/km3
+  depth_scale <- hab_depth_km / 1.0
+  VSP.J_yr_km3 <- VSP.J_s_cm3 * 3.154e7 * 1e15 * depth_scale
+  VSP.J_yr_km3_ADJ <- VSP.J_s_cm3_ADJ * 3.154e7 * 1e15 * depth_scale
+
+  # H2 oxidation mass
+  H2ox <- VSP.J_yr_km3 / delta_G
+  H2ox_ADJ <- VSP.J_yr_km3_ADJ / delta_G
+
+  ch4_factor <- 16.04 / (4 * 2.016)
+
+  tibble(
+    H2ox_tonnes_yr_km3 = H2ox,
+    H2ox_tonnes_yr_km3_ADJ = H2ox_ADJ,
+    CH4_tonnes_yr_km3 = H2ox * ch4_factor,
+    CH4_tonnes_yr_km3_ADJ = H2ox_ADJ * ch4_factor
+  )
+}
+
+# ── Apply MC to each well/depth observation ───────────────────────────────────
+
+run_mc_for_row <- function(
+  sum_abund,
+  cell_dens_mean_log10 = 5,
+  cell_dens_sd_log10 = PARAMS$cell_density_log_sd_default,
+  MSP_mean_log10 = -12,
+  MSP_sd_log10 = PARAMS$msp_log_sd_default,
+  cellC_mean_log10 = 1,
+  cellC_sd_log10 = PARAMS$cell_c_log_sd_default,
+  n = N_SIM
+) {
+  params <- sample_params(
+    n = n,
+    cell_dens_mean_log10 = cell_dens_mean_log10,
+    cell_dens_sd_log10 = cell_dens_sd_log10,
+    MSP_mean_log10 = MSP_mean_log10,
+    MSP_sd_log10 = MSP_sd_log10,
+    cellC_mean_log10 = cellC_mean_log10,
+    cellC_sd_log10 = cellC_sd_log10
+  )
+  results <- calc_methanogenesis(
+    MSP.J_s_g = params$MSP.J_s_g,
+    cell.C.fg = params$cell.C.fg,
+    sum_abund = sum_abund,
+    delta_G = params$delta_G,
+    hab_depth_km = params$hab_depth_km,
+    stim_factor = params$stim_factor,
+    cell_dens_mult = params$cell_dens_mult
+  )
+  bind_cols(params, results)
+}
+
+# ── Summarize MC distributions ────────────────────────────────────────────────
+
+summarize_mc <- function(mc_results) {
+  mc_results |>
+    summarise(across(
+      c(
+        H2ox_tonnes_yr_km3,
+        H2ox_tonnes_yr_km3_ADJ,
+        CH4_tonnes_yr_km3,
+        CH4_tonnes_yr_km3_ADJ
+      ),
+      list(
+        median = \(x) median(x, na.rm = TRUE),
+        mean = \(x) mean(x, na.rm = TRUE),
+        q025 = \(x) quantile(x, 0.025, na.rm = TRUE),
+        q25 = \(x) quantile(x, 0.25, na.rm = TRUE),
+        q75 = \(x) quantile(x, 0.75, na.rm = TRUE),
+        q975 = \(x) quantile(x, 0.975, na.rm = TRUE),
+        cv = \(x) sd(x, na.rm = TRUE) / mean(x, na.rm = TRUE)
+      ),
+      .names = "{.col}__{.fn}"
+    ))
+}
+
+# ── Variance-based sensitivity analysis ──────────────────────────────────────
+
+variance_sensitivity <- function(
+  sum_abund,
+  cell_dens_mean_log10 = 5,
+  cell_dens_sd_log10 = PARAMS$cell_density_log_sd_default,
+  MSP_mean_log10 = -12,
+  MSP_sd_log10 = PARAMS$msp_log_sd_default,
+  cellC_mean_log10 = 1,
+  cellC_sd_log10 = PARAMS$cell_c_log_sd_default,
+  n = N_SIM
+) {
+  params <- sample_params(
+    n = n,
+    cell_dens_mean_log10 = cell_dens_mean_log10,
+    cell_dens_sd_log10 = cell_dens_sd_log10,
+    MSP_mean_log10 = MSP_mean_log10,
+    MSP_sd_log10 = MSP_sd_log10,
+    cellC_mean_log10 = cellC_mean_log10,
+    cellC_sd_log10 = cellC_sd_log10
+  )
+  results <- calc_methanogenesis(
+    MSP.J_s_g = params$MSP.J_s_g,
+    cell.C.fg = params$cell.C.fg,
+    sum_abund = sum_abund,
+    delta_G = params$delta_G,
+    hab_depth_km = params$hab_depth_km,
+    stim_factor = params$stim_factor,
+    cell_dens_mult = params$cell_dens_mult
+  )
+
+  output <- results$CH4_tonnes_yr_km3_ADJ
+
+  tibble(
+    parameter = c(
+      "delta_G",
+      "hab_depth_km",
+      "cell_density",
+      "stim_factor",
+      "MSP",
+      "cell_carbon"
+    ),
+    spearman_r = c(
+      cor(params$delta_G, output, method = "spearman"),
+      cor(params$hab_depth_km, output, method = "spearman"),
+      cor(log10(params$cell_dens_mult), output, method = "spearman"),
+      cor(params$stim_factor, output, method = "spearman"),
+      cor(log10(params$MSP.J_s_g), output, method = "spearman"),
+      cor(log10(params$cell.C.fg), output, method = "spearman")
+    )
+  ) |>
+    mutate(
+      r_squared = spearman_r^2,
+      pct_variance = r_squared / sum(r_squared) * 100
+    ) |>
+    arrange(desc(pct_variance))
+}
+
+# ── Run on full dataset ───────────────────────────────────────────────────────
+
+assim_metabolic_mc <- assim_params |>
+  left_join(mb_abund, by = join_by(well, depth)) |>
+  left_join(cell_density_params, by = join_by(well)) |>
+  mutate(
+    mc_raw = pmap(
+      list(
+        sum_abund = sum_abund,
+        cell_dens_mean_log10 = cell_dens_mean_log10,
+        cell_dens_sd_log10 = cell_dens_sd_log10,
+        MSP_mean_log10 = MSP_mean_log10,
+        MSP_sd_log10 = MSP_sd_log10,
+        cellC_mean_log10 = cellC_mean_log10,
+        cellC_sd_log10 = cellC_sd_log10
+      ),
+      run_mc_for_row
+    ),
+    mc_summary = map(mc_raw, summarize_mc),
+    sensitivity = pmap(
+      list(
+        sum_abund = sum_abund,
+        cell_dens_mean_log10 = cell_dens_mean_log10,
+        cell_dens_sd_log10 = cell_dens_sd_log10,
+        MSP_mean_log10 = MSP_mean_log10,
+        MSP_sd_log10 = MSP_sd_log10,
+        cellC_mean_log10 = cellC_mean_log10,
+        cellC_sd_log10 = cellC_sd_log10
+      ),
+      variance_sensitivity
+    )
+  )
+
+# ── Extract flat summaries ────────────────────────────────────────────────────
+
+mc_summaries <- assim_metabolic_mc |>
+  select(well, depth, mc_summary) |>
+  unnest(mc_summary)
+
+sensitivity_all <- assim_metabolic_mc |>
+  select(well, depth, sensitivity) |>
+  unnest(sensitivity)
+
+# ── Downsample for plotting ───────────────────────────────────────────────────
+
+unnested_assim_metabolic_mc <- assim_metabolic_mc |>
+  mutate(mc_raw = map(mc_raw, \(x) slice_sample(x, n = 500))) |>
+  unnest(mc_raw)
+```
+
+## visualize
+
+```{r}
+# ── Visualizations ────────────────────────────────────────────────────────────
+
+# Plot 1: Spearman r dot plot (direction + magnitude)
+p_spearman <- sensitivity_all |>
+  mutate(
+    parameter = recode(
+      parameter,
+      "cell_density" = "Cell density",
+      "delta_G" = "ΔG (Gibbs)",
+      "hab_depth_km" = "Habitable depth",
+      "stim_factor" = "Stimulation Factor"
+    )
+  ) |>
+  mutate(
+    well_depth = interaction(well, depth),
+    well_depth = fct_rev(factor(
+      well_depth,
+      levels = c(
+        "BA1B.20",
+        "BA1B.150",
+        "BA1B.250",
+        "BA4A.20",
+        "BA4A.150",
+        "BA4A.270",
+        "BA3A.20",
+        "BA3A.150",
+        "BA3A.270"
+      )
+    ))
+  ) |>
+  ggplot(aes(x = spearman_r, y = well_depth, color = parameter)) +
+  geom_vline(xintercept = 0, linewidth = 0.3, color = "grey50") +
+  ggdist::stat_pointinterval() +
+  scale_color_brewer(palette = "Set2") +
+  labs(
+    #title = "Sensitivity of methane flux to uncertain parameters",
+    #subtitle = "Spearman rank correlation with methane flux",
+    x = "Spearman r",
+    y = "Well / Depth",
+    color = "Parameter"
+  ) +
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank())
+p_spearman
+
+# Plot 2: Faceted % variance bar chart (log scale)
+p_variance_bar <- sensitivity_all |>
+  mutate(
+    parameter = recode(
+      parameter,
+      "cell_density" = "Cell density",
+      "delta_G" = "ΔG (Gibbs)",
+      "hab_depth_km" = "Habitable depth",
+      stim_factor = "Stimulation Factor"
+    ),
+    well_depth = interaction(well, depth)
+  ) |>
+  mutate(
+    well_depth = factor(
+      well_depth,
+      levels = c(
+        "BA1B.20",
+        "BA1B.150",
+        "BA1B.250",
+        "BA4A.20",
+        "BA4A.150",
+        "BA4A.270",
+        "BA3A.20",
+        "BA3A.150",
+        "BA3A.270"
+      )
+    )
+  ) |>
+  ggplot(aes(x = well_depth, y = pct_variance, color = parameter)) +
+  ggdist::stat_pointinterval() +
+  scale_color_brewer(palette = "Set2") +
+  scale_y_log10(labels = scales::percent_format(scale = 1)) +
+  facet_wrap(~parameter, ncol = 1, scales = "free_y") +
+  labs(
+    #title = "Relative variance contributions to methane flux",
+    x = "Well × Depth",
+    y = "% of attributed variance (log scale)",
+    fill = "Parameter"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid.minor = element_blank(),
+    legend.position = "none",
+    strip.text = element_text(size = 12)
+  )
+p_variance_bar
+
+p_uncertainty_params <- cowplot::plot_grid(
+  p_spearman,
+  p_variance_bar,
+  ncol = 2,
+  labels = c("A", "B"),
+  rel_widths = c(0.6, 0.4)
+)
+
+p_uncertainty_params
+
+cowplot::save_plot(
+  plot = p_uncertainty_params,
+  filename = "fig_output/uncertainty_parameters.png",
+  base_height = 8,
+  base_width = 8,
+)
+```
+
+
+
+Plot 2:
+Relative contributions of three uncertain parameters — cell density, Gibbs free energy of methanogenesis (ΔG), and habitable subsurface depth — to total variance in modelled CH₄ flux (tonnes yr⁻¹ km⁻³) across all sampled wells and depths. Contributions are expressed as a percentage of total attributed variance derived from Spearman rank correlation coefficients between each parameter and CH₄ output across 10,000 Monte Carlo simulations. Cell density was parameterised as a log-normal distribution with well-specific mean and standard deviation derived from replicate cell counts; ΔG was drawn from a uniform distribution between thermodynamically favorable (2.393 × 10¹⁰ J tonne⁻¹ H₂) and unfavorable (1.26 × 10¹⁰ J tonne⁻¹ H₂) endmembers; habitable depth was drawn from a uniform distribution between 300 m and 1 km. Note the logarithmic y-axis, which allows minor contributors to remain visible alongside the dominant cell density term. Wells are faceted by panel; depth categories within each well are shown on the x-axis.
+
+```{r}
+p_montecarlo <- unnested_assim_metabolic_mc |>
+  mutate(
+    depth_str = case_when(
+      depth == 20 ~ "Shallow (20 m)",
+      depth == 150 ~ "Intermediate (150 m)",
+      depth == 250 ~ "Deep (250/270 m)",
+      depth == 270 ~ "Deep (250/270 m)"
+    ),
+    depth_fct = factor(
+      depth_str,
+      levels = c("Deep (250/270 m)", "Intermediate (150 m)", "Shallow (20 m)")
+    )
+  ) |>
+  pivot_longer(
+    cols = c(CH4_tonnes_yr_km3_ADJ, H2ox_tonnes_yr_km3_ADJ),
+    names_to = "flux_type",
+    values_to = "flux"
+  ) |>
+  mutate(
+    flux_type = recode(
+      flux_type,
+      "CH4_tonnes_yr_km3_ADJ" = "CH4 production",
+      "H2ox_tonnes_yr_km3_ADJ" = "H2 consumption"
+    ),
+    side = if_else(flux_type == "CH4 production", "top", "bottom"),
+    well = factor(
+      case_when(
+        well == "BA1B" ~ "Mildly Alkaline (BA1B)",
+        well == "BA4A" ~ "Moderately Alkaline (BA4A)",
+        well == "BA3A" ~ "Hyperalkaline (BA3A)"
+      ),
+      levels = c(
+        "Mildly Alkaline (BA1B)",
+        "Moderately Alkaline (BA4A)",
+        "Hyperalkaline (BA3A)"
+      )
+    )
+  ) |>
+  ggplot(aes(
+    x = flux,
+    y = depth_fct,
+    fill = flux_type,
+    side = side
+  )) +
+  facet_wrap(vars(well), ncol = 1) +
+  ggdist::stat_slab(
+    data = \(d) filter(d, flux_type == "H2 consumption"),
+    normalize = "groups",
+    alpha = 0.8
+  ) +
+  ggdist::stat_halfeye(
+    data = \(d) filter(d, flux_type == "CH4 production"),
+    normalize = "groups",
+    slab_alpha = 0.8,
+    interval_size_domain = c(1, 4)
+  ) +
+  scale_fill_brewer(palette = "Set1") +
+  scale_x_log10(
+    breaks = c(1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4),
+    labels = scales::trans_format("log10", scales::math_format(10^.x)),
+  ) +
+  labs(
+    x = latex2exp::TeX("Flux $(tonnes/yr/km^3)$"),
+    y = "Depth (mbls)",
+    fill = "Species / Flux"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    strip.text = element_text(size = 12),
+    panel.grid.minor = element_blank()
+  )
+
+p_montecarlo
+
+ggsave(
+  filename = "fig_output/monte_carlo_results.pdf",
+  plot = p_montecarlo,
+  height = 6,
+  width = 5
+)
+```
+
+extract monte carlo median qi info for main text
+```{r}
+mc_intervals <- unnested_assim_metabolic_mc |>
+  pivot_longer(
+    cols = c(CH4_tonnes_yr_km3_ADJ, H2ox_tonnes_yr_km3_ADJ),
+    names_to = "flux_type",
+    values_to = "flux"
+  ) |>
+  mutate(
+    flux_type = recode(
+      flux_type,
+      "CH4_tonnes_yr_km3_ADJ" = "CH4 production",
+      "H2ox_tonnes_yr_km3_ADJ" = "H2 consumption"
+    )
+  ) |>
+  group_by(well, depth, flux_type) |>
+  ggdist::median_qi(flux, .width = c(0.66, 0.95)) |>
+  arrange(well, depth, flux_type, .width)
+
+mc_intervals
+
+writexl::write_xlsx(
+  mc_intervals,
+  path = "data_output/montecarlo_intervals.xlsx"
+)
+```
+
+combine monte carlo results with MSP plot
+
+
+```{r}
+p_fig_montecarlo <- cowplot::plot_grid(
+  p_MSP_dens_combined,
+  p_montecarlo,
+  ncol = 2,
+  labels = c("A", "B")
+)
+
+cowplot::save_plot(
+  filename = "fig_output/montecarlo_fig_combined.pdf",
+  plot = p_fig_montecarlo,
+  base_height = 9,
+  base_width = 11
+)
 ```
