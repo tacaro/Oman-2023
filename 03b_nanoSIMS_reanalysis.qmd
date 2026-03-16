@@ -1,0 +1,2049 @@
+---
+title: "03_nanoSIMS_processing"
+editor: visual
+format:
+  html:
+    toc: true
+    code-fold: true
+editor_options: 
+  chunk_output_type: console
+bibliography: references.bib
+---
+
+Clear the environment
+
+```{r}
+rm(list=ls())
+```
+
+# Load libraries
+
+Load tidyverse and plotting libraries
+
+```{r}
+#| output: false
+library(tidyverse) # CRAN v1.3.2
+library(ggdist)    # CRAN v3.2.0
+library(ggforce)   # CRAN v0.4.1
+library(isotopia)  # [github::isoverse/isotopia] v0.5.8
+library(scales)    # CRAN v1.2.1
+library(gt)        # CRAN v0.10.0
+
+source("source/calculate_mu.R")
+source("source/calculate_sigma_mu.R")
+
+```
+
+# Import data
+
+### Load nanoSIMS data
+
+```{r}
+#| output: false
+
+
+data_path <- "data/nanoSIMS_tables/collected_tables_reanalysis/"
+
+
+if (file.exists("cache/nanoSIMS_data_reanalysis.RDS")) {
+  roi_data <- readRDS("cache/roi_data_reanalysis.RDS")
+} else {
+  tsv_file_list = list.files(path = data_path, pattern="*.tsv")
+  
+  roi_data <- tibble()
+  roi_data <- roi_data[-1,] # Remove the garbage row of the tibble
+  i = 0
+  
+  for (tsv in tsv_file_list) {
+    temp <- read_tsv(paste0(data_path, tsv),
+                     col_types = cols())
+    temp <- temp %>% mutate(filename = tsv)
+    roi_data <- bind_rows(roi_data, temp)
+    i <- i + 1
+    print(paste("File", i, "of", length(tsv_file_list), "loaded."))
+  }
+  saveRDS(roi_data, "cache/roi_data_reanalysis.RDS")
+}
+
+rm(temp) # remove the temp
+```
+
+### Load auxillary data
+
+```{r}
+# Amendment target concentration data
+amendments <- readxl::read_excel("data/13C-amendment-concentrations.xlsx") |> 
+  dplyr::rename(
+    spike.F13C = F13C,
+    spike.uM = concentration.um
+    )
+
+# DIC concentration data
+# using "Caro DIC Run1 March 6 2" instead of "Caro DIC Run1 March 6" because
+# the former is the dataset that uses BA3A high volume injections.
+DIC <- readRDS(file = "data/Caro DIC Run1 March 6 2/om23_dic_run1.RDS")
+
+# VOA data (via EMSL NMR)
+voa_corrected_ctl <- readRDS("cache/VOA_corrected.RDS")
+
+# Color palettes and ggplot2 theme
+source("source/color_palettes.R")
+source("source/theme_om23.R")
+```
+
+### Add metadata
+
+```{r}
+roi_data <- roi_data |> 
+  # remove the suffix, whichi s 23 characters long
+  mutate(sample_id = str_sub(filename, end = -23)) |> 
+  # add well info
+  mutate(
+    well = str_sub(sample_id, end = 4),
+    # parse the depth as a 3 digit number
+    depth = as.numeric(str_extract(sample_id, "\\d{2,3}")),
+    amendment = case_when(
+      str_detect(sample_id, "AC") ~ "acetate",
+      str_detect(sample_id, "FORM") ~ "formate",
+      str_detect(sample_id, "BIC") ~ "bicarbonate",
+      str_detect(sample_id, "NEG") ~ "negative control",
+    )
+  ) |> 
+  # calculate fractional abundance
+  mutate(
+    F13C = `13C` / (`12C` + `13C`),
+    B = `12C`,
+    A = `13C`,
+    sA = STDEV_13C,
+    sB = STDEV_12C,
+    F13C.error = sqrt(
+      ((B/(A+B)^2)*sA)^2 + ((-(A/(A+B)^2))*sB)^2
+    )
+  )
+```
+
+# Investigate raw 13F trends
+
+```{r}
+neg_ctl_mean <- roi_data |> 
+  filter(amendment == "negative control") |> 
+  pull(F13C) |> 
+  mean(na.rm = TRUE)
+
+neg_ctl_sd <- roi_data |> 
+  filter(amendment == "negative control") |> 
+  pull(F13C) |> 
+  sd(na.rm = TRUE)
+
+custom_order = c("BA1B negative control", "BA1B formate", "BA1B bicarbonate", "BA1B acetate", "BA4A formate", "BA4A bicarbonate", "BA4A acetate")
+
+# Plot it
+p_ratio <- roi_data |> 
+  mutate(
+    condition = paste(well, amendment),
+    condition = fct_recode(condition, !!!setNames(custom_order, custom_order)),
+    depth_str = factor(case_when(
+      depth == 20 ~ "Shallow (20m)",
+      depth == 150 ~ "Intermediate (150m)",
+      depth == 250 ~ "Deep (250/270m)",
+      depth == 270 ~ "Deep (250/270m)"
+    ),
+    levels = c("Shallow (20m)","Intermediate (150m)","Deep (250/270m)")
+    ),
+    well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))
+  ) |> 
+  filter(amendment != "negative control") |> 
+  mutate(above_background = case_when(
+    F13C >= neg_ctl_mean + (3*neg_ctl_sd) ~ TRUE,
+    F13C < neg_ctl_mean + (3*neg_ctl_sd) ~ FALSE
+  )) |> 
+  ggplot(
+  aes(
+    x = F13C,
+    y = amendment,
+    color = above_background
+  )
+) +
+  geom_point(
+   position = position_nudge(y = -0.25),
+   alpha = 0.5,
+   shape = 124,
+   size = 3
+   ) +
+  ggdist::stat_pointinterval(color = "black", point_interval = "median_qi") +
+  geom_vline(xintercept = neg_ctl_mean, linewidth = 0.5, color = "red", alpha = 0.5) +
+  annotate(geom = "rect", 
+    xmin = neg_ctl_mean - (3*neg_ctl_sd),
+    xmax = neg_ctl_mean + (3*neg_ctl_sd),
+    ymin = -Inf, ymax = Inf,
+    color = NA,
+    fill = "red",
+    alpha = 0.25
+  ) +
+  #scale_color_manual(values = amendment_palette) +
+  scale_color_manual(values = c("red", "black")) +
+  facet_grid(depth_str~well) +
+  #ggforce::facet_zoom(xlim = c(0, 0.1)) +
+  theme_bw() +
+  labs(
+    x = latex2exp::TeX("$^{13}F$"),
+    y = ""
+  ) +
+  theme(
+    legend.position = "None",
+    panel.grid = element_blank(),
+    strip.background = element_rect(fill = "black"),
+    strip.text.x = element_text(color = "white", angle = 0, face = "bold"),
+    strip.text.y = element_text(color = "white", angle = 0, face = "bold")
+  )
+p_ratio
+
+# Here's a zoomed in verison of the last plot
+p_ratio_zoom <- p_ratio %+% coord_cartesian(xlim = c(0.008, 0.02))
+
+p_ratio_combined <- cowplot::plot_grid(p_ratio, p_ratio_zoom, ncol = 1, labels = c("A", "B"))
+p_ratio_combined
+
+# cowplot::save_plot(
+#   filename = "fig_output/F13C_data_two_panel.pdf",
+#   plot = p_ratio_combined,
+#   base_height = 10, base_width = 12
+# )
+```
+
+# Rate calculations
+
+Incubations were prepared in 50 mL serum vials that were acid washed and combusted prior to sampling, sealed with autoclaved butyl rubber stoppers. Carbon isotopes were added at 99.99 at. % enrichment to aim for concentrations of:
+
+| Amendment       | BA3A  | BA4A   | BA1B   |
+|-----------------|-------|--------|--------|
+| 13C Formate     | 50µM  | 50µM   | 50µM   |
+| 13C Acetate     | 50µM  | 50µM   | 50µM   |
+| 13C Bicarbonate | 100µM | 1000µM | 6000µM |
+
+Inspect the data:
+
+```{r}
+amendments |> knitr::kable()
+```
+
+We must account for isotopic dilution of the tracer from carbon pools native to the sample.
+
+We now have new data from PNNL EMSL's NMR facility revealing the concentrations of acetate and formate:
+
+```{r}
+voa_corrected_ctl |> 
+  filter(compound %in% c("Acetate", "Formate")) |> 
+  filter(!is_control) |> 
+  select(sample_id, compound, uM_corr) |> 
+  pivot_wider(
+    values_from = uM_corr, 
+    names_from = compound
+    ) |> 
+  dplyr::rename(Acetate_uM = Acetate,
+         Formate_uM = Formate) |> 
+  gt() |> 
+  data_color(columns = Acetate_uM, palette = "Blues") |> 
+  data_color(columns = Formate_uM, palette = "Greens")
+```
+
+```{r}
+voa_concs <- voa_corrected_ctl |> 
+  filter(compound %in% c("Acetate", "Formate")) |> 
+  filter(!is_control) |> 
+  select(sample_id, compound, uM_corr) |> 
+  dplyr::rename(voa_conc_uM = uM_corr) |> 
+  mutate(voa_F13C = 0.01105639) |> # 13F of VPDB (13R = 0.011180)
+  mutate(amendment = stringr::str_to_lower(compound)) |> 
+  select(-compound)
+```
+
+### Add DIC/OA data to nanoSIMS tibble
+
+Make a slim version of the DIC data
+
+```{r}
+DIC_slim <- DIC |> 
+  # select just the OM23 well data (remove standards, blanks)
+  filter(type == "Falcon Tube", !is.na(well)) |>
+  select(well, depth, DIC_uM, d13C.scale, d13C.error.S) |> 
+  # convert d13C to F13C (fractional abundance)
+  mutate(
+    # register values as delta notation
+    DIC.d13C = delta(`13C` = d13C.scale, major = "12C", ref = "VPDB"),
+    DIC.d13C.error = delta(`13C` = d13C.error.S, major = "12C", ref = "VPDB"),
+    DIC.d13C.error_upper = delta(
+      `13C` = as.numeric(DIC.d13C) + as.numeric(DIC.d13C.error),
+      major = "12C", ref = "VPDB"
+      ),
+    DIC.d13C.error_lower = delta(
+      `13C` = as.numeric(DIC.d13C) - as.numeric(DIC.d13C.error),
+      major = "12C", ref = "VPDB"),
+    # convert delta notation to ratio
+    DIC.R13C = to_ratio(DIC.d13C),
+    DIC.R13C.error_upper = to_ratio(DIC.d13C.error_upper),
+    DIC.R13C.error_lower = to_ratio(DIC.d13C.error_lower),
+    # convert ratio to fractional abundance
+    DIC.F13C = as.numeric(to_abundance(DIC.R13C)),
+    DIC.F13C.error_upper = as.numeric(to_abundance(DIC.R13C.error_upper)),
+    DIC.F13C.error_lower = as.numeric(to_abundance(DIC.R13C.error_lower)),
+  ) |> 
+  select(-c(d13C.scale, d13C.error.S))
+```
+
+### Mass balance the effective label strength
+
+The calculation of isotopic abundances in pools derived from the combination of isotopically differing materials is defined as:
+
+$$
+m_{\Sigma}F_{\Sigma} = m_1F_1 + m_2F_2 + ...
+$$
+
+where the m terms represent molar quantities of the element of interest and the F terms represent fractional isotopic abundances.
+
+In cases of isotope dilution, an isotopic spike is added to a sample and the mixture is analyzed. For the mixture, we can rearrange to:
+
+$$
+(m_x + m_k)F_\Sigma = m_xF_x + m_kF_k \\
+F_\Sigma = \frac{m_xF_x + m_kF_k}{m_x + m_k}
+$$
+
+where k is the spike, and x is the natural abundance pool. Here, $m$ refers to the moles of compound x and spike k, respectively. F refers to the frational abundance.
+
+```{r}
+mass_balance_13C <- function(x_uM, k_uM, x_F13C, k_F13C, x_L, k_L, option = "F13C") {
+  # mx and fx are natural abundance molarity (µM) and abundance
+  # mk and fk are isotope spike molarity and abundance
+  # vx and vk are volume of natural abundance and spike, respectively (Liters)
+  molarity_x = x_uM * 1e-6
+  molarity_k = k_uM * 1e-6
+  moles_x = molarity_x * x_L
+  moles_k = molarity_k * k_L
+}
+
+calculate_effective_F13C <- function(x_uM, k_uM, x_F13C, k_F13C, x_L, k_L) {
+  # mx and fx are natural abundance molarity (µM) and abundance
+  # mk and fk are isotope spike molarity and abundance
+  # vx and vk are volume of natural abundance and spike, respectively (Liters)
+  molarity_x = x_uM * 1e-6
+  molarity_k = k_uM * 1e-6
+  moles_x = molarity_x * x_L
+  moles_k = molarity_k * k_L
+  moles_total = moles_x + moles_k
+  vol_total = x_L + k_L
+  effective_F13C = (moles_x*x_F13C + moles_k*k_F13C) / moles_total
+  molarity_final = moles_total / vol_total
+  return(effective_F13C)
+}
+
+calculate_effective_molarity <- function(x_uM, k_uM, x_F13C, k_F13C, x_L, k_L) {
+  # mx and fx are natural abundance molarity (µM) and abundance
+  # mk and fk are isotope spike molarity and abundance
+  # vx and vk are volume of natural abundance and spike, respectively (Liters)
+  # option: return F13C or molarity?
+  molarity_x = x_uM * 1e-6
+  molarity_k = k_uM * 1e-6
+  moles_x = molarity_x * x_L
+  moles_k = molarity_k * k_L
+  moles_total = moles_x + moles_k
+  vol_total = x_L + k_L
+  effective_F13C = (moles_x*x_F13C + moles_k*k_F13C) / moles_total
+  molarity_final = moles_total / vol_total
+  uM_final = molarity_final * 1e6
+  return(uM_final)
+}
+
+calculate_moles_spike <- function(x_uM, k_uM, x_F13C, k_F13C, x_L, k_L) {
+  # mx and fx are natural abundance molarity (µM) and abundance
+  # mk and fk are isotope spike molarity and abundance
+  # vx and vk are volume of natural abundance and spike, respectively (Liters)
+  # option: return F13C or molarity?
+  molarity_x = x_uM * 1e-6
+  molarity_k = k_uM * 1e-6
+  moles_x = molarity_x * x_L
+  moles_k = molarity_k * k_L
+  moles_total = moles_x + moles_k
+  vol_total = x_L + k_L
+  effective_F13C = (moles_x*x_F13C + moles_k*k_F13C) / moles_total
+  molarity_final = moles_total / vol_total
+  uM_final = molarity_final * 1e6
+  return(moles_k)
+}
+
+calculate_moles_pre <- function(x_uM, k_uM, x_F13C, k_F13C, x_L, k_L) {
+  # mx and fx are natural abundance molarity (µM) and abundance
+  # mk and fk are isotope spike molarity and abundance
+  # vx and vk are volume of natural abundance and spike, respectively (Liters)
+  # option: return F13C or molarity?
+  molarity_x = x_uM * 1e-6
+  molarity_k = k_uM * 1e-6
+  moles_x = molarity_x * x_L
+  moles_k = molarity_k * k_L
+  moles_total = moles_x + moles_k
+  vol_total = x_L + k_L
+  effective_F13C = (moles_x*x_F13C + moles_k*k_F13C) / moles_total
+  molarity_final = moles_total / vol_total
+  uM_final = molarity_final * 1e6
+  return(moles_x)
+}
+
+calculate_moles_total <- function(x_uM, k_uM, x_F13C, k_F13C, x_L, k_L) {
+  # mx and fx are natural abundance molarity (µM) and abundance
+  # mk and fk are isotope spike molarity and abundance
+  # vx and vk are volume of natural abundance and spike, respectively (Liters)
+  # option: return F13C or molarity?
+  molarity_x = x_uM * 1e-6
+  molarity_k = k_uM * 1e-6
+  moles_x = molarity_x * x_L
+  moles_k = molarity_k * k_L
+  moles_total = moles_x + moles_k
+  vol_total = x_L + k_L
+  effective_F13C = (moles_x*x_F13C + moles_k*k_F13C) / moles_total
+  molarity_final = moles_total / vol_total
+  uM_final = molarity_final * 1e6
+  return(moles_total)
+}
+
+
+calculate_effective_F13C(
+  x_uM = 0.55, # BA3A-20 Formate µM
+  x_F13C = 0.01, # BA3A-20 Formate F13C (natabund)
+  x_L = 0.0495, # BA3A-20 volume (45.5mL)
+  k_uM = 50, # spike concnetration 50µM
+  k_F13C = 0.99, # spike F13C (99 at %)
+  k_L = 0.0005 # spike volume (0.5mL)
+)
+
+calculate_effective_molarity(
+  x_uM = 0.55, # BA3A-20 Formate µM
+  x_F13C = 0.01, # BA3A-20 Formate F13C (natabund)
+  x_L = 0.0495, # BA3A-20 volume (45.5mL)
+  k_uM = 50, # spike concnetration 50µM
+  k_F13C = 0.99, # spike F13C (99 at %)
+  k_L = 0.0005 # spike volume (0.5mL)
+)
+
+```
+
+So let's apply this to our samples. We then calculate single-cell growth rate as per Caro et al. 2023, Kopf et al. 2015, etc.
+
+## Calculate growth rates
+
+Now we'll join our data tables of DIC data and amendment data.
+
+1.  Join in the DIC data
+2.  Join in the VOA data
+3.  Join in the amendment data
+4.  Calculate the effective concentration `F13C.label` that the cells saw, based on dilution of endogenous carbon sources
+5.  calculate growth rate `mu.d`
+6.  Define `active` cells as cells with 13C enrichment \> 3SD of the blank run. Set inactive cells mu.d to 0.
+
+Growth rate $\mu \: (d^{-1})$ is calculated according to the following equation:
+
+$$
+\mu = - \frac{1}{t} \cdot ln \left( \frac{F_T - a \cdot FL}{F_0 - a \cdot F_L} \right)
+$$
+
+where t is the incubation time in days, $F_T$ is the isotopic enrichment at time of sampling "T", a is the assimilation efficiency of carbon (assumed to be 1), $F_0$ is the isotopic enrichment at start of the incubation (natural abundance 13C), and $F_L$ is the label strength applied.
+
+```{r}
+# set activity threshold
+F13C.activity_threshold <- neg_ctl_mean + (3 * neg_ctl_sd)
+
+
+# join the tibbles
+growth_data <- roi_data |> 
+  # rename sample_id column to coupon_id column
+  dplyr::rename(coupon_id = sample_id) |>
+  # create new column that matches sample_id
+  mutate(sample_id = paste0(well, "-", depth), .before = everything()) |>
+  # add the DIC data
+  left_join(DIC_slim, by = c("well", "depth")) |>
+  # add the amendment data
+  left_join(amendments, by = c("well", "amendment")) |> 
+  # add the VOA data
+  left_join(voa_concs, by = c("sample_id", "amendment")) |> 
+  mutate(
+    dt = case_when(
+      # add the incubation times from OM23 sample matrix .xlsx
+         # START: 7 FEB 2023
+         # END: 19 MAR 2023
+         str_detect(sample_id, "BA1B") ~ 40,
+         str_detect(sample_id, "BA4A") ~ 40,
+         # END: 02 OCT 2023
+         str_detect(sample_id, "BA3A-20") ~ 238,
+         # END: 10 OCT 2023
+         str_detect(sample_id, "BA3A-150") & amendment == "acetate" ~ 246,
+         str_detect(sample_id, "BA3A-150") & amendment == "bicarbonate"~ 246,
+         str_detect(sample_id, "BA3A-270") & amendment == "acetate"~ 246,
+         # END: 18 OCT 2023
+         str_detect(sample_id, "BA3A-150") & amendment == "formate" ~ 254,
+         str_detect(sample_id, "BA3A-270") & amendment == "formate"~ 254,
+         str_detect(sample_id, "BA3A-270") & amendment == "bicarbonate"~ 254,
+    )
+  ) |> 
+ mutate(
+  # define the concentration of natural abundance C source:
+  x_uM = case_when(
+        amendment == "bicarbonate" ~ DIC_uM,
+        amendment == "acetate" ~ voa_conc_uM,
+        amendment == "formate" ~ voa_conc_uM
+      ),
+  # define the F13C of natural abundance C source:
+  x_F13C = case_when(
+        amendment == "bicarbonate" ~ DIC.F13C,
+        amendment == "acetate" ~ voa_F13C,
+        amendment == "formate" ~ voa_F13C
+      ),
+  # molarity of the isotope spike:
+      k_uM = case_when(
+        amendment == "formate" ~ 5000, # stock conc: 5000uM
+        amendment == "acetate" ~ 5000, # stock conc: 5000uM
+        amendment == "bicarbonate" & well == "BA1B" ~ 600000, # 600 mM
+        amendment == "bicarbonate" & well == "BA4A" ~ 100000, # 100 mM
+        amendment == "bicarbonate" & well == "BA3A" ~ 10000   # 10 mM
+      ),
+  k_F13C = 0.99, # spike was always 99 at. %
+  # volume of the sample and spike
+  x_L = 0.0495, # 0.0495 L = 49.5 mL
+  k_L = 0.0005,  # 0.0005 L = 0.5 mL
+  # mass balance:
+  F13C.label = calculate_effective_F13C(
+      x_uM = x_uM, x_F13C = x_F13C,
+      k_uM = k_uM, k_F13C = k_F13C,
+      x_L = x_L, k_L = k_L
+      ),
+  uM.label = calculate_effective_molarity(
+      x_uM = x_uM, x_F13C = x_F13C,
+      k_uM = k_uM, k_F13C = k_F13C,
+      x_L = x_L, k_L = k_L
+      ),
+  moles_pre = calculate_moles_pre(
+      x_uM = x_uM, x_F13C = x_F13C,
+      k_uM = k_uM, k_F13C = k_F13C,
+      x_L = x_L, k_L = k_L
+      ),
+  moles_spike = calculate_moles_spike(
+      x_uM = x_uM, x_F13C = x_F13C,
+      k_uM = k_uM, k_F13C = k_F13C,
+      x_L = x_L, k_L = k_L
+      ),
+  moles_total = calculate_moles_total(
+      x_uM = x_uM, x_F13C = x_F13C,
+      k_uM = k_uM, k_F13C = k_F13C,
+      x_L = x_L, k_L = k_L
+      )
+  ) |> 
+   # calculate apparent growth rate
+   mutate(
+     mu.d = calculate_mu(
+       # assume assimilation efficiency of the carbon source is 1, 
+       # ignoring fractionation effects because they are unknown and likely low
+       a = 1,
+       F2 = F13C, # measured cell F13C (fractional abundance, not at. %)
+       F1 = neg_ctl_mean, # assume F13C at start of incubation is that of the neg ctl
+       FL = F13C.label, # use the calculated effective label strength
+       t2 = dt, # use the dt column we defined earlier based on cell extraction date
+       t1 = 0 # t1 = 0 because t2 is change in time!
+     )
+   ) |> 
+   # if cell F13C did not exceed 2SD of the blank, 
+   # set active = FALSE and set mu.d to zero
+   mutate(
+     active = if_else(
+       F13C - F13C.error >= F13C.activity_threshold,
+       true = TRUE,
+       false = FALSE
+     ),
+     mu.d = if_else(
+       active,
+       true = mu.d,
+       false = 0
+     ),
+    gen.d = log(2)/mu.d
+   )
+```
+
+## Inspect effective label strengths
+
+```{r}
+effective_label_summary <- growth_data |> 
+  filter(amendment != "negative control") |> 
+  group_by(well, depth, amendment) |> 
+  select(well, depth, amendment, DIC_uM, voa_conc_uM, F13C.label, uM.label,
+         moles_pre, moles_spike, moles_total) |> 
+  unique() |> 
+  ungroup() |> 
+  mutate(
+    carbon_source = amendment,
+    ambient_uM = case_when(
+      carbon_source == "bicarbonate" ~ DIC_uM,
+      carbon_source == "acetate" | carbon_source == "formate" ~ voa_conc_uM
+    ),
+    effective_uM = uM.label,
+    effective_at13C = F13C.label * 100, # convert from fractional to atom %
+  ) |> 
+  select(well, depth, carbon_source, ambient_uM, effective_uM, 
+         effective_at13C, moles_pre, moles_spike, moles_total) |> 
+  pivot_wider(names_from = carbon_source, 
+              values_from = c(ambient_uM, effective_uM,effective_at13C,
+                              moles_pre, moles_spike, moles_total)) |> 
+  mutate(well = factor(well, levels = c("BA1B", "BA4A", "BA3A")),
+         depth = factor(as.character(depth), 
+                        levels = c("20", "150", "250", "270"))) |>
+  arrange(well, depth)
+
+
+# make a GT
+gt_label_summary <- effective_label_summary |> 
+  dplyr::rename(
+    ambient_acetate = ambient_uM_acetate,
+    ambient_formate = ambient_uM_formate,
+    ambient_bicarbonate = ambient_uM_bicarbonate,
+    effective_acetate = effective_uM_acetate,
+    effective_bicarbonate = effective_uM_bicarbonate,
+    effective_formate = effective_uM_formate,
+    isotopic_label_acetate = effective_at13C_acetate,
+    isotopic_label_formate = effective_at13C_formate,
+    isotopic_label_bicarbonate = effective_at13C_bicarbonate
+  ) |> 
+  gt() |> 
+  data_color(
+    columns = c(isotopic_label_acetate, isotopic_label_formate,
+                isotopic_label_bicarbonate), 
+    palette = "Reds"
+    ) |> 
+  data_color(
+    columns = c(ambient_acetate, effective_acetate), 
+    palette = "Blues") |> 
+  data_color(
+    columns = c(ambient_formate, effective_formate), 
+    palette = "Purples") |> 
+  data_color(
+    columns = c(ambient_bicarbonate, effective_bicarbonate), 
+    palette = "Greens") |> 
+  cols_label(
+    depth = "Depth (mbs)",
+    ambient_acetate = "Pre-incubation (µM)",
+    ambient_formate = "Pre-incubation (µM)",
+    ambient_bicarbonate = "Pre-Incubation (µM)",
+    effective_acetate = "After {{^13}}C probe addition (µM)",
+    effective_formate = "After {{^13}}C probe addition (µM)",
+    effective_bicarbonate = "With {{^13}}C Tracer (µM)",
+    isotopic_label_acetate = "Effective isotopic label (at. %)",
+    isotopic_label_formate = "Effective isotopic label (at. %)",
+    isotopic_label_bicarbonate = "Effective isotopic label (at. %)"
+  ) |> 
+  tab_spanner(
+    columns = c(ambient_acetate, effective_acetate, isotopic_label_acetate),
+    label = "Acetate"
+  ) |> 
+  tab_spanner(
+    columns = c(ambient_bicarbonate, effective_bicarbonate,isotopic_label_bicarbonate),
+    label = "DIC"
+  ) |> 
+  tab_spanner(
+    columns = c(ambient_formate, effective_formate, isotopic_label_formate),
+    label = "Formate"
+  ) |> 
+  fmt_percent(
+    columns = c(isotopic_label_acetate, isotopic_label_formate, 
+                isotopic_label_bicarbonate), 
+    scale_values = FALSE) |> 
+  fmt_number(
+    columns = c(ambient_acetate, ambient_formate, ambient_bicarbonate,
+                effective_acetate, effective_formate, effective_bicarbonate),
+    decimals = 2
+      ) |> 
+  fmt_percent(columns = c(isotopic_label_acetate, isotopic_label_formate,
+                          isotopic_label_bicarbonate),
+              decimals = 1, scale_values = FALSE) |> 
+  cols_align(align = "center") |> 
+    tab_row_group(rows = well == "BA3A", label = "BA3A") |> 
+  tab_row_group(rows = well == "BA4A", label = "BA4A") |> 
+  tab_row_group(rows = well == "BA1B", label = "BA1B") |> 
+  cols_hide(columns = c(well, moles_pre_acetate, moles_pre_bicarbonate,
+                        moles_pre_formate, moles_spike_acetate, moles_spike_formate,
+                        moles_spike_bicarbonate, moles_total_acetate, 
+                        moles_total_bicarbonate, moles_total_formate, 
+                        moles_total_acetate)) |> 
+  tab_style(style = cell_borders(color = "black", sides = c("top"), weight = px(3)),
+          locations = cells_row_groups(groups = c("BA1B","BA4A", "BA3A"))) |> 
+  tab_header(
+    title = "Isotopic labeling conditions",
+    subtitle = "Concentrations and isotopic compositions of stable isotope probes"
+  )
+gt_label_summary
+
+
+#effective_label_summary |> writexl::write_xlsx(path = "data_output/effective_label_concentrations.xlsx")
+
+#gt_label_summary |> gtsave(filename = "data_output/effective_label_concentrations.html")
+```
+
+### Plot raw 13F trends with effective label
+
+```{r}
+# p_13F <- growth_data |> 
+#   mutate(
+#     condition = paste(well, amendment),
+#     condition = fct_recode(condition, !!!setNames(custom_order, custom_order)),
+#     well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))
+#   ) |> 
+#   filter(amendment != "negative control") |> 
+#   mutate(
+#     depth_str = factor(case_when(
+#       depth == 20 ~ "Shallow (20m)",
+#       depth == 150 ~ "Intermediate (150m)",
+#       depth == 250 ~ "Deep (250/270m)",
+#       depth == 270 ~ "Deep (250/270m)"
+#     ), levels = c("Shallow (20m)", "Intermediate (150m)","Deep (250/270m)")
+#   )) |> 
+#   ggplot(
+#   aes(
+#     x = F13C,
+#     y = amendment,
+#     color = active,
+#   )
+# ) +
+#   # geom_point(
+#   #   position = position_jitter(height = 0.2),
+#   #   alpha = 0.5,
+#   #   size = 0.3
+#   # ) +
+#   geom_point(
+#     position = position_nudge(y = - 0.25),
+#     alpha = 0.25,
+#     shape = 124,
+#     size = 5
+#     ) +
+#   ggdist::stat_pointinterval(color = "black", point_interval = "median_qi") +
+#   geom_vline(xintercept = neg_ctl_mean, linewidth = 0.5, color = "black") +
+#   geom_segment(
+#     aes(
+#       x = F13C.label, 
+#       xend = F13C.label, 
+#       y = as.numeric(factor(amendment)) - 0.3,
+#       yend = as.numeric(factor(amendment)) + 0.3
+#       ),
+#     linewidth = 0.5,
+#     color = "blue"
+#     ) +
+#   annotate(geom = "rect", 
+#     xmin = neg_ctl_mean - (3*neg_ctl_sd),
+#     xmax = neg_ctl_mean + (3*neg_ctl_sd),
+#     ymin = -Inf, ymax = Inf,
+#     color = NA,
+#     fill = "red",
+#     alpha = 0.5
+#   ) +
+#   scale_color_manual(values = c("red", "black")) +
+#   facet_grid(depth_str~well, scales = "free_x") +
+#   labs(
+#     x = latex2exp::TeX("Cellular $^{13}F$ Enrichment"),
+#     y = "",
+#   ) +
+#   theme_bw() +
+#   theme(
+#     legend.position = "None",
+#     panel.grid = element_blank(),
+#     strip.background = element_rect(fill = "black"),
+#     strip.text.x = element_text(color = "white", face = "bold"),
+#     strip.text.y = element_text(color = "white", face = "bold")
+#   )
+#   
+# p_13F
+# 
+# p_13F_zoom <- p_13F %+% coord_cartesian(xlim = c(0.008, 0.02))
+# 
+# p_13F_combined <- cowplot::plot_grid(p_13F, p_13F_zoom, ncol = 1, labels = c("A", "B"))
+# p_13F_combined
+# # cowplot::save_plot(plot = p_13F_combined, filename = "fig_output/F13C_with_FL_combined.pdf", base_height = 10, base_width = 12)
+```
+
+```{r}
+p_13F <- growth_data |> 
+  mutate(
+    condition = paste(well, amendment),
+    condition = fct_recode(condition, !!!setNames(custom_order, custom_order)),
+    well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))
+  ) |> 
+  filter(amendment != "negative control") |> 
+  mutate(
+    depth_str = factor(case_when(
+      depth == 20 ~ "Shallow (20m)",
+      depth == 150 ~ "Intermediate (150m)",
+      depth == 250 ~ "Deep (250/270m)",
+      depth == 270 ~ "Deep (250/270m)"
+    ), levels = c("Shallow (20m)", "Intermediate (150m)","Deep (250/270m)")
+  )) |> 
+  group_by(
+    well
+  ) |> 
+  arrange(F13C) |> 
+  mutate(rank = row_number()) |> 
+  ggplot(
+  aes(
+    y = F13C,
+    x = rank,
+    color = active,
+    #shape = depth_str
+  )
+) +
+  # geom_point(
+  #   position = position_jitter(height = 0.2),
+  #   alpha = 0.5,
+  #   size = 0.3
+  # ) +
+  geom_pointinterval(
+    aes(
+      ymin = F13C - F13C.error,
+      ymax = F13C + F13C.error
+    ), size = 0.5
+  ) +
+  geom_hline(yintercept = neg_ctl_mean, linewidth = 0.5, color = "black") +
+  geom_segment(
+    aes(
+      y = F13C.label, 
+      yend = F13C.label, 
+      x = as.numeric(factor(amendment)) - 0.3,
+      xend = as.numeric(factor(amendment)) + 0.3
+      ),
+    linewidth = 0.5,
+    color = "blue"
+    ) +
+  annotate(geom = "rect", 
+    ymin = neg_ctl_mean - (3*neg_ctl_sd),
+    ymax = neg_ctl_mean + (3*neg_ctl_sd),
+    xmin = -Inf, xmax = Inf,
+    color = NA,
+    fill = "red",
+    alpha = 0.5
+  ) +
+  scale_color_manual(values = c("red", "black")) +
+  scale_shape_manual(values = c(1,2,3)) +
+  facet_grid(well~., scales = "free_x") +
+  labs(
+    y = latex2exp::TeX("$^{13}F_{biomass}$"),
+    x = latex2exp::TeX("Ranked $^{13}F_{biomass}$"),
+    color = "Quantified"
+  ) +
+  theme_bw() +
+  theme(
+    #legend.position = "None",
+    panel.grid = element_blank(),
+    strip.background = element_rect(fill = "black"),
+    strip.text.x = element_text(color = "white", face = "bold"),
+    strip.text.y = element_text(color = "white", face = "bold")
+  )
+  
+p_13F
+
+p_13F_zoom <- p_13F %+% coord_cartesian(ylim = c(0.008, 0.015), xlim = c(0, 1200))
+p_13F_zoom
+
+p_13F_combined <- cowplot::plot_grid(p_13F, p_13F_zoom, ncol = 1, labels = c("A", "B"))
+p_13F_combined
+
+cowplot::save_plot(
+  filename = "fig_output/13F_with_error.pdf",
+  plot = p_13F_combined,
+  base_height = 8,
+  base_width = 8
+)
+```
+
+### Plot Growth Rates
+
+```{r}
+#| eval: false
+
+growth_data_summary <- growth_data |> 
+  # add quantification cutoff: 3SD above neg ctl
+  mutate(quantified = if_else(
+    F13C > (neg_ctl_mean + (3*neg_ctl_sd)),
+    true = TRUE,
+    false = FALSE)
+    ) |>
+  filter(amendment != "negative control") |> 
+  mutate(
+    depth_str = paste0(depth, "m"),
+    depth_str = forcats::fct_reorder(
+      depth_str, depth, .desc = TRUE
+      )
+  ) |> 
+  mutate(
+    well = factor(well, levels = c("BA1B", "BA4A", "BA3A")),
+    depth_str = factor(case_when(
+      depth == 20 ~ "Shallow (20m)",
+      depth == 150 ~ "Intermediate (150m)",
+      depth == 250 ~ "Deep (250/270m)",
+      depth == 270 ~ "Deep (250/270m)"
+    ),
+    levels = c("Shallow (20m)","Intermediate (150m)","Deep (250/270m)")
+    )
+  ) |> 
+  filter(mu.d > 0) |> 
+  group_by(well, depth_str, amendment) |> 
+  summarize(median_mu.d = median(mu.d, na.rm = TRUE),
+            median_gen.d = log(2)/median_mu.d,
+            median_gen.d_str = paste(round(median_gen.d, 0), "days"))
+
+p_mu_d <- growth_data |> 
+  # add quantification cutoff: 3SD above neg ctl
+  mutate(quantified = if_else(
+    F13C > (neg_ctl_mean + (3*neg_ctl_sd)),
+    true = TRUE,
+    false = FALSE)
+    ) |>
+  filter(amendment != "negative control") |> 
+  mutate(
+    depth_str = paste0(depth, "m"),
+    depth_str = forcats::fct_reorder(
+      depth_str, depth, .desc = TRUE
+      )
+  ) |> 
+  mutate(
+    well = factor(well, levels = c("BA1B", "BA4A", "BA3A")),
+    depth_str = factor(case_when(
+      depth == 20 ~ "Shallow (20m)",
+      depth == 150 ~ "Intermediate (150m)",
+      depth == 250 ~ "Deep (250/270m)",
+      depth == 270 ~ "Deep (250/270m)"
+    ),
+    levels = c("Shallow (20m)","Intermediate (150m)","Deep (250/270m)")
+    )
+  ) |> 
+  filter(mu.d > 0) |> 
+  ggplot(
+    aes(x = mu.d, y = amendment, color = amendment)
+  ) +
+  geom_point(shape = 124, position = position_nudge(y = -0.2)) +
+  ggdist::stat_pointinterval(point_interval = "median_qi", color = "black") +
+  ggrepel::geom_text_repel(
+    data = growth_data_summary,
+    aes(x = median_mu.d, y = amendment, label = median_gen.d_str),
+    color = "black", nudge_y = 0.2
+  ) +
+  facet_grid(depth_str~well) +
+  scale_color_manual(values = amendment_palette) +
+  scale_y_discrete(limits = rev) +
+  scale_x_log10() +
+  labs(
+    x = latex2exp::TeX("Growth Rate $(day^{-1})$"),
+    y = "",
+    color = "Carbon Source",
+    caption = "Median, 95% CI, 66% CI plotted as interval. Median generation time noted as label."
+  ) +
+  theme_bw() +
+  theme(
+    panel.grid = element_blank(),
+    panel.spacing = unit(0.1, "cm"),
+    panel.grid.major.x = element_blank()
+    )
+
+p_mu_d
+
+# cowplot::save_plot(
+#   filename = "fig_output/growth_rate_data.pdf",
+#   plot = p_mu_d,
+#   base_height = 
+# )
+```
+
+#### Plot 2.2: Updated gen time
+
+```{r}
+growth_data_summary_for_gt <- growth_data |> 
+  filter(amendment != "negative control") |> # filter negative controls out
+  # add "quantified" where sample is quantified if 3sigma > mean neg CTL
+  mutate(
+    quantified = if_else(
+      F13C > (neg_ctl_mean + (3*neg_ctl_sd)),
+      true = TRUE,
+      false = FALSE)
+    ) |>
+  filter(quantified) |>
+  mutate(
+    depth_str = paste0(depth, "m"),
+    depth_str = forcats::fct_reorder(
+      depth_str, depth, .desc = TRUE
+      )
+  ) |>
+    group_by(well, depth_str, amendment) |> 
+    summarize(median_mu.d = median(mu.d, na.rm = TRUE),
+              max_mu.d = max(mu.d, na.rm = TRUE),
+              min_mu.d = min(mu.d, na.rm = TRUE)) |>
+    mutate(median_gen.d = log(2) / median_mu.d,
+           max_gen.d = log(2) / min_mu.d,
+           min_gen.d = log(2) / max_mu.d) |> 
+    ungroup()
+
+
+```
+
+## C assimilation rates
+
+```{r}
+# Define the mean and standard deviation of our natural abundance control
+paste(
+  "We set our F13C activity threshold as ",
+  round(F13C.activity_threshold, 4),
+  " or ",
+  round(F13C.activity_threshold, 4) * 100,
+  " at. % 13C"
+  )
+
+F13C.activity_threshold <- neg_ctl_mean + (3 * neg_ctl_sd)
+
+paste0(
+  "Our negative controls exhibit a F13C of ", round(neg_ctl_mean, 6), 
+  "+/- ", round(3* neg_ctl_sd, 6), 
+  " (3*SD). Therefore, our F13C activity threshold is ", 
+  round(F13C.activity_threshold, 6), " or ",
+  round(F13C.activity_threshold * 100, 4),
+  " at. % 13C."
+  )
+```
+
+The authors of [@stryhanyuk2018] define a term *K* as the fraction of the element incorporated by a cell during incubation with isotope-labeled growth substrates, relative to its initial cellular content. In other words, K represents the fraction of cellular Carbon that is from an isotope tracer, versus carbon *not* from an isotope tracer. The relative assimilation expressed with K values can be used to compare a relative difference and heterogeneity in single cell activity revealed in relative amount of assimilated material.
+
+While [@stryhanyuk2018] define K using isotope ratio terms (*R*), we use fractional abundance notation where
+
+$$
+^{13}F = \frac{^{13}C}{^{13}C + ^{12}C}
+$$
+
+and
+
+$$
+^{13}F = \frac{^{13}R}{1 + \space ^{13}R}
+$$
+
+$$
+K = \frac{aF_T - F_i}{aF_L - F_i}
+$$
+
+where:
+
+-   $a$ is the assimilation efficiency fraction (0 - 1) of the target compound.
+
+-   $F_T$ is the isotope fractional abundance at time of sampling (time = T)
+
+-   $F_i$ is the initial isotope fractional abundance before the addition of tracer (or, a tracer-free negative control).
+
+```{r}
+calculate_K <- function(a = 1, FT, Fi, FL) {
+  # because we're comparing assimilation efficiencies between compounds
+  # we set a = 1
+  # use other values as appropriate
+  K = (a*FT - Fi) / (a*FL - Fi)
+}
+```
+
+To calculate cell-specific assimilation rate, we can multiply the absolute value of an element mass per cell volume (for example, carbon partial density $\rho_C (g/\mu m^3)$ by the ROI-defined cellular volume ($V_i$ $\mu m^3$ ) calculated for each cell, to get the mass of carbon for each of the analyzed cells:
+
+$$
+m_i = \rho_C \times V_i
+$$ where:
+
+-   $m_i$ is the mass of carbon in a given cell
+
+-   $\rho_C$ is the carbon partial density in a cell ($g/ \mu m^3$ )
+
+-   $V_i$ is cellular volume ( $\mu m^3$)
+
+Alternatively, as we do in this study, we can convert the cell-specific volume to cell-specific mass using the relationship described in [@khachikyan2019]:
+
+$$
+m_{carbon} = 197 \times V^{0.46}
+$$
+
+where:
+
+-   $V$ refers to cellular volume in $\mu m^3$
+
+-   $m_{carbon}$ refers to cell-specific carbon mass in femtograms (fg)
+
+```{r}
+# this function uses partial density of carbon
+calculate_mcarbon_density <- function(rho, vol) {
+  # rho is the carbon partial density of a cell in g/µm^3
+  # v is cellular volume in µm^3
+  mass = rho * vol
+  return(mass)
+}
+
+# this function uses Khachikyan et al. 2019 empirically-derived relationship
+calculate_mcarbon <- function(V) {
+  mass = 197 * (V^0.46)
+  return(mass)
+}
+```
+
+In order for these calculations to work, we must have reasonable estimates of cellular volume that are derived from the ROI-area. [@trembath-reichert2021; @stryhanyuk2018] use the following relationship, which takes into account the volume of two capping hemispheres on a coccoidal or rod-shaped cell:
+
+$$
+V = \frac{1}{2}\pi \times W^2 \times \left( \frac{1}{3} W + \frac{1}{2}(L-W)\right)
+$$
+
+where:
+
+-   L is cell length (major axis) in µm
+
+-   W is cell width (minor axis) in µm
+
+If L = W, this relationship will express the volume of a sphere, and so is applicable to coccoidal cells.
+
+```{r}
+calculate_volume <- function(L, W) {
+  # L and W are major and minor axis lengths in um
+  # volume is returned in um^3
+  volume = ((1/2) * pi) * W^2 * ((1/3*W) + ((1/2)*(L-W)))
+  return(volume)
+}
+```
+
+To derive the mass of carbon assimilated by each cell, the cell-specific mass of carbon is multiplied by the fraction $K$ of carbon incorporated into the cell:
+
+$$
+\mu_i = m_i \times K
+$$
+
+where $µ_i$ is mass of assimilated carbon (*not to be confused with cell-specific growth rate, µ)*.
+
+```{r}
+calculate_assimilated_C <- function(mass, K) {
+  # mass is cell-specific mass of carbon
+  # K is fraction carbon that is incorporated
+  mu = mass * K
+  return(mu)
+}
+```
+
+And the cell-specific assimilation rate of carbon ($r_c$) is calculated for each cell by dividing the assimilated carbon by time:
+
+$$
+r_C = \frac{u_i}{t} = \frac{\rho_C \times V_i \times K}{t}
+$$
+
+```{r}
+calculate_assim_rate <- function(mu, t) {
+  # mu is mass of assimilated carbon (fg)
+  # the rate is assimilated carbon per unit time (fg/d for example)
+  rate = mu / t
+  return(rate)
+}
+
+
+calculate_assim_rate_density <- function(rho, vol, K, t) {
+  # rho is the carbon partial density of a cell in g/µm^3
+  # v is cellular volume in µm^3
+  # K is the fraction of cellular carbon that is from assimilated tracer
+  # t is change in time
+  rate = (rho * vol * K) / t
+}
+```
+
+The error in $r_C$ is calculated by accounting for uncertainties of the associated input values as follows:
+
+$$
+\Delta r_C = \sqrt{
+\left( \frac{\partial r_c}{\partial \rho} \times \Delta \rho \right)^2 +
+\left(\frac{\partial r_c}{\partial V_i} \times \Delta V  \right)^2 +
+\left(\frac{\partial r_c}{\partial K} \times \Delta K  \right)^2 +
+\left(\frac{\partial r_c}{\partial t} \times \Delta t  \right)^2
+}
+$$
+
+and:
+
+$$
+\frac{\partial r_c}{\partial \rho} = \frac{V \times K}{t} \\
+\frac{\partial r_c}{\partial V_i} = \frac{\rho \times K}{t} \\
+\frac{\partial r_c}{\partial K} = \frac{\rho \times V}{t} \\
+\frac{\partial r_c}{\partial t} = - \frac{\rho \times V \times K}{t^2}
+$$
+
+```{r}
+calculate_assim_rate_error <- function(
+    rho, # cell specific carbon density (g/µm^3)
+    V, # cell specific volume (µm^3)
+    K, # K
+    t, # change in time
+    del.rho, # uncertainty in rho
+    del.V, # uncertainty in volume
+    del.K, # uncertainty in K
+    del.t # uncertainty in T
+    ) {
+  
+  # define partial derivative terms
+  dr.drho = (V*K) / t
+  dr.dV = (rho * K) / t
+  dr.dK = (rho * V) / t
+  dr.dt = - (rho * V * K) / (t^2)
+  
+  del.rate = sqrt(
+      (dr.drho * del.rho)^2 +
+      (dr.dV * del.V)^2 +
+      (dr.dK * del.K)^2 +
+      (dr.dt * del.t)^2
+  )
+  
+  return(del.rate)
+}
+```
+
+```{r}
+# how many microns per pixel?
+# each image is 512 x 512 pixels
+# each image is 25 µm x 25 µm area
+um_per_px <- 25 / 512 # um/px = 0.0488
+
+assim_data <- growth_data |> 
+  # convert axis lengths to µm instead of pixels
+  mutate(
+    axis_major_length.um = axis_major_length * um_per_px,
+    axis_minor_length.um = axis_minor_length * um_per_px
+  ) |> 
+  mutate(
+    # add at13C natural abundance (F_i)
+    F13C.t0 = neg_ctl_mean,
+    # calculate cell volume
+    vol = calculate_volume(L = axis_major_length.um, W = axis_minor_length.um),
+    # calculate cell carbon mass in fg
+    cell.C.fg = calculate_mcarbon(V = vol),
+    # calculate K, fraction of cell assimilated from tracer
+    K1 = calculate_K(a = 1, FT = F13C, Fi = F13C.t0, FL = F13C.label),
+    K2 = - (1/dt) * log(1 - K1),
+    # calculate mass of assimilated carbon
+    assim.C.fg = calculate_assimilated_C(mass = cell.C.fg, K = K1),
+    assim.C.fg2 = calculate_assimilated_C(mass = cell.C.fg, K = K2),
+    # calculate rate of assimilation per day
+    # fg/day
+    rC.fg.d = calculate_assim_rate(mu = assim.C.fg, t = dt),
+    rC.fg.d2 = calculate_assim_rate(mu = assim.C.fg2, t = 1),
+    rC.fmol.d = rC.fg.d / 12.01,
+    rC.fmol.d2 = rC.fg.d2 / 12.01,
+  ) |> 
+  # compare rC values when calculated with K versus K2:
+  mutate(rC.fmol.d_residual = rC.fmol.d2-rC.fmol.d) |> 
+  ########## NOTE #############
+  # K1 (eq. 3) calculates rC.fmol.d
+  # K2 (eq. 4) calculates rC.fmol.d2 
+  mutate(
+    rC.fg.d = case_when(
+      rC.fg.d < 0 ~ 0,
+      rC.fg.d >= 0 ~ rC.fg.d
+      ),
+    rC.fmol.d = case_when(
+      rC.fmol.d < 0 ~ 0,
+      rC.fmol.d >= 0 ~ rC.fmol.d
+      ),
+    assim.C.fg = case_when(
+      assim.C.fg < 0 ~ 0,
+      assim.C.fg >= 0 ~ assim.C.fg
+      ),
+    # EVERYTHING HERE (APPENDED WITH '2') IS CALCULATED FROM K2
+    rC.fg.d2 = case_when(
+      rC.fg.d2 < 0 ~ 0,
+      rC.fg.d2 >= 0 ~ rC.fg.d2
+      ),
+    rC.fmol.d2 = case_when(
+      rC.fmol.d2 < 0 ~ 0,
+      rC.fmol.d2 >= 0 ~ rC.fmol.d2
+      ),
+    assim.C.fg2 = case_when(
+      assim.C.fg2 < 0 ~ 0,
+      assim.C.fg2 >= 0 ~ assim.C.fg2
+      ),
+  ) |> 
+  mutate(
+    well = factor(well, levels = c("BA1B", "BA4A", "BA3A")),
+    depth_str = factor(case_when(
+      depth == 20 ~ "Shallow (20m)",
+      depth == 150 ~ "Intermediate (150m)",
+      depth == 250 ~ "Deep (250/270m)",
+      depth == 270 ~ "Deep (250/270m)"
+    ),
+    levels = c("Shallow (20m)","Intermediate (150m)","Deep (250/270m)")
+    )
+  )  |> 
+  mutate(
+    quantified = if_else(
+      F13C - F13C.error > (neg_ctl_mean + (3*neg_ctl_sd)),
+      true = TRUE,
+      false = FALSE
+      )
+    )
+```
+
+### compare the different ways of calculating K
+
+```{r}
+p_k1_vs_k2 <- assim_data |> 
+  ggplot(
+    aes(
+      x = rC.fmol.d,
+      y = rC.fmol.d2,
+      color = rC.fmol.d_residual
+    )
+  ) +
+  geom_abline(color = "gray", linetype = "dotted") +
+  scale_x_log10(
+    labels = scales::trans_format("log10", 
+    scales::math_format(10^.x))
+    ) +
+  scale_y_log10(
+    labels = scales::trans_format("log10", 
+    scales::math_format(10^.x))
+    ) +
+  geom_point(shape = 1) +
+  scale_color_viridis_c() +
+  scale_y_log10() +
+  labs(
+    x = latex2exp::TeX("$\\r_C$ (Eq. 3)"),
+    y = latex2exp::TeX("$\\r_C$ (Eq. 4)"),
+    color = "Residual"
+  ) +
+  theme_minimal() +
+  theme(
+    aspect.ratio = 1,
+    legend.position = "inside",
+    legend.position.inside = c(0.25, 0.75),
+    legend.background = element_rect(color = "black", fill = "white")
+    )
+p_k1_vs_k2
+```
+
+### plot the residuals
+
+```{r}
+p_k1k2_residual <- assim_data |> 
+  ggplot(
+    aes(
+      y = rC.fmol.d_residual,
+      x = rC.fmol.d,
+      color = rC.fmol.d_residual
+    )
+  ) +
+  geom_point(shape = 1) +
+  scale_color_viridis_c() +
+  scale_x_log10() +
+  labs(
+    x = latex2exp::TeX("$\\r_C$ (Eq. 3)"),
+    y = "Residual"
+  ) +
+  theme_minimal() +
+  theme(aspect.ratio = 1,
+        legend.position = "None")
+p_k1k2_residual
+```
+
+### plot side by side
+
+```{r}
+# Summarize the assim data
+assim_data_median <- assim_data |> 
+  filter(amendment != "negative control") |> 
+  filter(rC.fmol.d > 0, quantified) |>
+  mutate(
+    amendment = factor(amendment, levels = c("bicarbonate", "acetate", "formate")),
+    well = case_when(
+      well == "BA1B" ~ "BA1B (Mildly Alkaline)",
+      well == "BA4A" ~ "BA4A (Moderately Alkaline)",
+      well == "BA3A" ~ "BA3A (Hyperalkaline)",
+    ),
+    well = factor(well, levels = c("BA1B (Mildly Alkaline)", 
+                                   "BA4A (Moderately Alkaline)",
+                                   "BA3A (Hyperalkaline)")),
+    ) |> 
+  arrange(amendment) |> 
+  group_by(well, amendment) |> 
+  summarise(median_rC.fmol.d = median(rC.fmol.d, na.rm = TRUE)) |> 
+  ungroup()
+
+# Plot it!
+p_fmolC_k1k2 <- assim_data |> 
+  filter(amendment != "negative control") |> 
+  filter(rC.fmol.d > 0) |>
+  mutate(
+    amendment = factor(amendment, levels = c("bicarbonate", "acetate", "formate")),
+    well = case_when(
+      well == "BA1B" ~ "BA1B (Mildly Alkaline)",
+      well == "BA4A" ~ "BA4A (Moderately Alkaline)",
+      well == "BA3A" ~ "BA3A (Hyperalkaline)",
+    ),
+    well = factor(well, levels = c("BA1B (Mildly Alkaline)", 
+                                   "BA4A (Moderately Alkaline)",
+                                   "BA3A (Hyperalkaline)")),
+    ) |> 
+  pivot_longer(
+    cols = c(rC.fmol.d, rC.fmol.d2),
+    names_to = "k_type",
+    values_to = "rC"
+  ) |> 
+  mutate(eq = if_else(k_type == "rC.fmol.d2", true = "Eq. 4", false = "Eq. 3")) |> 
+  arrange(amendment) |> 
+  ggplot(
+    aes(x = rC, y = depth_str,
+        fill = eq, color = eq)
+  ) +
+  ggdist::stat_halfeye(
+    data = function(df) df |> filter(quantified),
+    #aes(fill = well),
+    slab_color = "black",
+    slab_linewidth = 0.25,
+    slab_alpha = 0.5,
+    color = "black",
+    height = 1,
+    point_interval = "median_qi", # median quantile interval
+    .width = c(0.66, 0.95) # 66% and 95% CI
+    ) +
+  facet_grid(amendment~well) +
+  scale_fill_brewer(palette = "Set3") +
+  scale_x_log10(
+    breaks = c(1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0),
+    labels = scales::trans_format("log10", 
+    scales::math_format(10^.x))
+    ) +
+  scale_y_discrete(limits = rev) +
+  coord_cartesian(xlim = c(1e-6, 1e0)) +
+  annotation_logticks(sides = "b") +
+  labs(
+    x = latex2exp::TeX("Cell-specific carbon assimilation rate (fmol C $cell^{-1} \\; day^{-1}$)"),
+    y = "",
+    color = "Calculation Method:",
+    fill = "Calculation Method:"
+  ) +
+  theme_bw() +
+  guides(
+    color = "none"
+  ) +
+  theme(
+    legend.position = "bottom",
+    panel.grid = element_blank(),
+    panel.spacing = unit(0.1, "cm"),
+    strip.background = element_blank(),
+    axis.text = element_text(color = "black"),
+    strip.text.y = element_text(angle = 0, size = 12, face = "bold", hjust = 0),
+    strip.text.x = element_text(size = 12, face = "bold", hjust = 0.5)
+    )
+
+p_fmolC_k1k2
+
+```
+
+#### export for supp fig.
+
+```{r}
+cowplot::plot_grid(
+  p_k1_vs_k2, p_k1k2_residual,
+  rel_widths = c(0.5, 0.5),
+  labels = c("A", "B")
+) |> 
+  cowplot::plot_grid(
+    p_fmolC_k1k2,
+    labels = c("", "C"),
+    ncol = 1,
+    rel_heights = c(0.3, 0.7)
+  ) |> 
+  cowplot::save_plot(
+    filename = "fig_output/K1_K2_plot.pdf",
+    base_height = 12,
+    base_width = 10
+  )
+```
+
+Test
+
+```{r}
+assim_data2 <- growth_data |> 
+  # convert axis lengths to µm instead of pixels
+  mutate(
+    axis_major_length.um = axis_major_length * um_per_px,
+    axis_minor_length.um = axis_minor_length * um_per_px
+  ) |> 
+  mutate(
+    # add at13C natural abundance (F_i)
+    F13C.t0 = neg_ctl_mean,
+    # calculate K, fraction of cell assimilated from tracer
+    F13C_DF = (F13C - 0.010 * 0.08)/(1-0.08),
+    K = calculate_K(a = 1, FT = F13C_DF, Fi = F13C.t0, FL = F13C.label),
+    # calculate cell volume
+    vol = calculate_volume(L = axis_major_length.um, W = axis_minor_length.um),
+    # calculate cell carbon mass in fg
+    cell.C.fg = calculate_mcarbon(V = vol),
+    # calculate mass of assimilated carbon
+    assim.C.fg = calculate_assimilated_C(mass = cell.C.fg, K = K),
+    # calculate rate of assimilation per day
+    # fg/day
+    rC.fg.d = calculate_assim_rate(mu = assim.C.fg, t = dt),
+    rC.fmol.d = rC.fg.d / 12.01
+  ) |> 
+  mutate(
+    rC.fg.d = case_when(
+      rC.fg.d < 0 ~ 0,
+      rC.fg.d >= 0 ~ rC.fg.d
+      ),
+    rC.fmol.d = case_when(
+      rC.fmol.d < 0 ~ 0,
+      rC.fmol.d >= 0 ~ rC.fmol.d
+      ),
+    assim.C.fg = case_when(
+      assim.C.fg < 0 ~ 0,
+      assim.C.fg >= 0 ~ assim.C.fg
+      )
+  ) |> 
+  mutate(
+    well = factor(well, levels = c("BA1B", "BA4A", "BA3A")),
+    depth_str = factor(case_when(
+      depth == 20 ~ "Shallow (20m)",
+      depth == 150 ~ "Intermediate (150m)",
+      depth == 250 ~ "Deep (250/270m)",
+      depth == 270 ~ "Deep (250/270m)"
+    ),
+    levels = c("Shallow (20m)","Intermediate (150m)","Deep (250/270m)")
+    )
+  )  |> 
+  mutate(
+    quantified = if_else(
+      F13C - F13C.error > (neg_ctl_mean + (3*neg_ctl_sd)),
+      true = TRUE,
+      false = FALSE
+      )
+    )
+```
+
+#### FIG 1: Plot Carbon Assimilation Rate
+
+```{r}
+# Summarize the assim data
+assim_data_median <- assim_data |> 
+  filter(amendment != "negative control") |> 
+  filter(rC.fmol.d > 0, quantified) |>
+  mutate(
+    amendment = factor(amendment, levels = c("bicarbonate", "acetate", "formate")),
+    well = case_when(
+      well == "BA1B" ~ "BA1B (Mildly Alkaline)",
+      well == "BA4A" ~ "BA4A (Moderately Alkaline)",
+      well == "BA3A" ~ "BA3A (Hyperalkaline)",
+    ),
+    well = factor(well, levels = c("BA1B (Mildly Alkaline)", 
+                                   "BA4A (Moderately Alkaline)",
+                                   "BA3A (Hyperalkaline)")),
+    ) |> 
+  arrange(amendment) |> 
+  group_by(well, amendment) |> 
+  summarise(median_rC.fmol.d = median(rC.fmol.d, na.rm = TRUE)) |> 
+  ungroup()
+
+
+# do it again with the second k calculation method
+assim_data_median2 <- assim_data |> 
+  filter(amendment != "negative control") |> 
+  filter(rC.fmol.d > 0, quantified) |>
+  mutate(
+    amendment = factor(amendment, levels = c("bicarbonate", "acetate", "formate")),
+    well = case_when(
+      well == "BA1B" ~ "BA1B (Mildly Alkaline)",
+      well == "BA4A" ~ "BA4A (Moderately Alkaline)",
+      well == "BA3A" ~ "BA3A (Hyperalkaline)",
+    ),
+    well = factor(well, levels = c("BA1B (Mildly Alkaline)", 
+                                   "BA4A (Moderately Alkaline)",
+                                   "BA3A (Hyperalkaline)")),
+    ) |> 
+  arrange(amendment) |> 
+  group_by(well, amendment) |> 
+  summarise(median_rC.fmol.d = median(rC.fmol.d2, na.rm = TRUE)) |> 
+  ungroup()
+
+# Plot it!
+p_fmolC <- assim_data |> 
+  filter(amendment != "negative control") |> 
+  filter(rC.fmol.d > 0) |>
+  mutate(
+    amendment = factor(amendment, levels = c("bicarbonate", "acetate", "formate")),
+    well = case_when(
+      well == "BA1B" ~ "BA1B (Mildly Alkaline)",
+      well == "BA4A" ~ "BA4A (Moderately Alkaline)",
+      well == "BA3A" ~ "BA3A (Hyperalkaline)",
+    ),
+    well = factor(well, levels = c("BA1B (Mildly Alkaline)", 
+                                   "BA4A (Moderately Alkaline)",
+                                   "BA3A (Hyperalkaline)")),
+    ) |> 
+  arrange(amendment) |> 
+  ggplot(
+    aes(x = rC.fmol.d, y = depth_str)
+  ) +
+  # plot the median line for each panel using summarized data above
+  geom_vline(
+    data = assim_data_median, 
+    aes(xintercept = median_rC.fmol.d),
+    linewidth = 0.7
+    ) +
+  # Plot the non-quantified data as red bars
+  geom_point(
+    data = function(df) df |> filter(!quantified),
+    shape = 124,
+    position = position_nudge(y = -0.2),
+    color = "red",
+    size = 2
+    ) +
+  # Plot the quantified data as black bars
+  geom_point(
+    data = function(df) df |> filter(quantified),
+    shape = 124,
+    position = position_nudge(y = -0.2),
+    alpha = 0.7,
+    size = 2
+    ) +
+  # ggdist::stat_pointinterval(
+  #   data = function(df) df |> filter(quantified),
+  #   color = "black",
+  #   point_interval = "median_qi", # median quantile interval
+  #   .width = c(0.66, 0.95) # 66% and 95% CI
+  #   ) +
+  ggdist::stat_halfeye(
+    data = function(df) df |> filter(quantified),
+    aes(fill = well),
+    slab_color = "black",
+    slab_linewidth = 0.25,
+    color = "black",
+    height = 1,
+    point_interval = "median_qi", # median quantile interval
+    .width = c(0.66, 0.95) # 66% and 95% CI
+    ) +
+  facet_grid(amendment~well) +
+  scale_fill_brewer() +
+  scale_x_log10(
+    breaks = c(1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0),
+    labels = scales::trans_format("log10", 
+    scales::math_format(10^.x))
+    ) +
+  scale_y_discrete(limits = rev) +
+  coord_cartesian(xlim = c(1e-6, 1e0)) +
+  annotation_logticks(sides = "b") +
+  labs(
+    x = latex2exp::TeX("Cell-specific carbon assimilation rate (fmol C $cell^{-1} \\; day^{-1}$)"),
+    y = ""
+  ) +
+  theme_bw() +
+  guides(
+    color = "none"
+  ) +
+  theme(
+    legend.position = "none",
+    panel.grid = element_blank(),
+    panel.spacing = unit(0.1, "cm"),
+    strip.background = element_blank(),
+    axis.text = element_text(color = "black"),
+    strip.text.y = element_text(angle = 0, size = 12, face = "bold", hjust = 0),
+    strip.text.x = element_text(size = 12, face = "bold", hjust = 0.5)
+    )
+
+p_fmolC
+
+
+# Plot it! with the second k calculation method
+p_fmolC2 <- assim_data |> 
+  filter(amendment != "negative control") |> 
+  filter(rC.fmol.d2 > 0) |>
+  mutate(
+    amendment = factor(amendment, levels = c("bicarbonate", "acetate", "formate")),
+    well = case_when(
+      well == "BA1B" ~ "BA1B (Mildly Alkaline)",
+      well == "BA4A" ~ "BA4A (Moderately Alkaline)",
+      well == "BA3A" ~ "BA3A (Hyperalkaline)",
+    ),
+    well = factor(well, levels = c("BA1B (Mildly Alkaline)", 
+                                   "BA4A (Moderately Alkaline)",
+                                   "BA3A (Hyperalkaline)")),
+    ) |> 
+  arrange(amendment) |> 
+  ggplot(
+    aes(x = rC.fmol.d2, y = depth_str)
+  ) +
+  # plot the median line for each panel using summarized data above
+  geom_vline(
+    data = assim_data_median2, 
+    aes(xintercept = median_rC.fmol.d),
+    linewidth = 0.7
+    ) +
+  # Plot the non-quantified data as red bars
+  geom_point(
+    data = function(df) df |> filter(!quantified),
+    shape = 124,
+    position = position_nudge(y = -0.2),
+    color = "red",
+    size = 2
+    ) +
+  # Plot the quantified data as black bars
+  geom_point(
+    data = function(df) df |> filter(quantified),
+    shape = 124,
+    position = position_nudge(y = -0.2),
+    alpha = 0.7,
+    size = 2
+    ) +
+  ggdist::stat_halfeye(
+    data = function(df) df |> filter(quantified),
+    aes(fill = well),
+    slab_color = "black",
+    slab_linewidth = 0.25,
+    color = "black",
+    height = 1,
+    point_interval = "median_qi", # median quantile interval
+    .width = c(0.66, 0.95) # 66% and 95% CI
+    ) +
+  facet_grid(amendment~well) +
+  scale_fill_brewer() +
+  scale_x_log10(
+    breaks = c(1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0),
+    labels = scales::trans_format("log10", 
+    scales::math_format(10^.x))
+    ) +
+  scale_y_discrete(limits = rev) +
+  coord_cartesian(xlim = c(1e-6, 1e0)) +
+  annotation_logticks(sides = "b") +
+  labs(
+    x = latex2exp::TeX("Cell-specific carbon assimilation rate (fmol C $cell^{-1} \\; day^{-1}$)"),
+    y = ""
+  ) +
+  theme_bw() +
+  guides(
+    color = "none"
+  ) +
+  theme(
+    legend.position = "none",
+    panel.grid = element_blank(),
+    panel.spacing = unit(0.1, "cm"),
+    strip.background = element_blank(),
+    axis.text = element_text(color = "black"),
+    strip.text.y = element_text(angle = 0, size = 12, face = "bold", hjust = 0),
+    strip.text.x = element_text(size = 12, face = "bold", hjust = 0.5)
+    )
+
+p_fmolC2
+
+cowplot::save_plot(
+  plot = p_fmolC2,
+  filename = "fig_output/cell_specific_assim.pdf",
+  base_height = 7.5,
+  base_width = 11.5
+)
+```
+
+test to see to what extent dilution factors affect data
+
+```{r}
+assim_data |> 
+  mutate(type = "no-DF") |> 
+  bind_rows(assim_data2 |> mutate(type = "DF")) |> 
+  filter(amendment != "negative control") |> 
+  filter(rC.fmol.d > 0) |>
+  mutate(
+    amendment = factor(amendment, levels = c("bicarbonate", "acetate", "formate")),
+    well = case_when(
+      well == "BA1B" ~ "BA1B (Mildly Alkaline)",
+      well == "BA4A" ~ "BA4A (Moderately Alkaline)",
+      well == "BA3A" ~ "BA3A (Hyperalkaline)",
+    ),
+    well = factor(well, levels = c("BA1B (Mildly Alkaline)", 
+                                   "BA4A (Moderately Alkaline)",
+                                   "BA3A (Hyperalkaline)"))
+    ) |> 
+  arrange(amendment) |> 
+  ggplot(
+    aes(x = rC.fmol.d, y = depth_str, color = type, fill = type)
+  ) +
+  # Plot the non-quantified data as red bars
+  ggdist::stat_pointinterval(
+    data = function(df) df |> filter(quantified),
+    color = "black",
+    point_interval = "median_qi", # median quantile interval
+    .width = c(0.66, 0.95) # 66% and 95% CI
+    ) +
+  ggdist::stat_halfeye(
+    data = function(df) df |> filter(quantified),
+    color = "black",
+    height = 1,
+    point_interval = "median_qi", # median quantile interval
+    .width = c(0.66, 0.95) # 66% and 95% CI
+    ) +
+  facet_grid(amendment~well) +
+  #scale_color_manual(values = amendment_palette) +
+  scale_x_log10(
+    breaks = c(1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1e0),
+    labels = scales::trans_format("log10", 
+    scales::math_format(10^.x))
+    ) +
+  scale_y_discrete(limits = rev) +
+  coord_cartesian(xlim = c(1e-6, 1e0)) +
+  annotation_logticks(sides = "b") +
+  labs(
+    x = latex2exp::TeX("fmol C $cell^{-1} \\; day^{-1}$"),
+    y = "",
+    color = "Carbon Source"
+  ) +
+  theme_bw() +
+  theme(
+    panel.grid = element_blank(),
+    panel.spacing = unit(0.1, "cm"),
+    strip.background = element_blank(),
+    axis.text = element_text(color = "black"),
+    strip.text.y = element_text(angle = 0, size = 12, face = "bold", hjust = 0),
+    strip.text.x = element_text(size = 12, face = "bold", hjust = 0.5)
+    )
+```
+
+### Table summary of C assimilation rates
+
+Now we output the results of the above plot in table form
+
+```{r}
+
+assim_data_fmol_summary <- assim_data |> 
+  filter(amendment != "negative control") |> 
+  filter(rC.fmol.d2 > 0) |>
+  mutate(
+    amendment = factor(amendment, levels = c("bicarbonate", "acetate", "formate")),
+    well = case_when(
+      well == "BA1B" ~ "BA1B (Mildly Alkaline)",
+      well == "BA4A" ~ "BA4A (Moderately Alkaline)",
+      well == "BA3A" ~ "BA3A (Hyperalkaline)",
+    ),
+    well = factor(well, levels = c("BA1B (Mildly Alkaline)", 
+                                   "BA4A (Moderately Alkaline)",
+                                   "BA3A (Hyperalkaline)")),
+    ) |> 
+  arrange(amendment) |> 
+  group_by(well, depth, amendment) |> 
+  filter(amendment != "negative_control") |>
+  filter(quantified) |> 
+  summarize(
+    median_rC.fmol.d = median(rC.fmol.d2)
+  ) |> pivot_wider(values_from = median_rC.fmol.d, names_from = amendment) |> 
+  ungroup()
+
+gt_assim_data_fmol_summary <- assim_data_fmol_summary |> 
+  gt(rowname_col = "well") |> 
+  cols_label(depth = "Depth (mbls)") |> 
+  tab_spanner(columns = -c(depth), label = "Carbon Source") |> 
+  tab_header(title = "Median Cell-Specific Carbon Assimilation Rates") |> 
+  tab_footnote(footnote = "All values reported in cell-specific fmol C per day.",
+                   locations = cells_column_labels(
+                     columns = c(acetate, bicarbonate, formate))) |> 
+  fmt_scientific(columns = c(acetate, bicarbonate, formate)) |> 
+  data_color(columns = c(acetate, bicarbonate, formate), palette = "Blues")
+gt_assim_data_fmol_summary
+
+# Export as .xlsx and gt
+gtsave(gt_assim_data_fmol_summary, filename = "data_output/median_cscar.html")
+writexl::write_xlsx(assim_data_fmol_summary, path = "data_output/median_cscar.xlsx")
+
+```
+
+### Table Summary of % Active Cells
+
+```{r}
+fraction_active_summary <- assim_data |>
+  group_by(
+    well, depth, amendment
+  ) |> 
+  summarize(
+    sumQ = sum(quantified),
+    total = n()
+  ) |> 
+  mutate(fraction_active = sumQ / total)
+
+  
+  gt_fraction_active_summary <- fraction_active_summary |> 
+    select(well, depth, fraction_active, amendment) |> 
+    mutate(depth = case_when(
+      depth == 20 ~ "Shallow (20m)",
+      depth == 150 ~ "Medium (150m)",
+      depth == 250 ~ "Deep (250 / 270m)",
+      depth == 270 ~ "Deep (250 / 270m)")
+      ) |>
+    filter(amendment != "negative control") |> 
+    pivot_wider(values_from = fraction_active, names_from = well) |> 
+    select(amendment, depth, BA1B, BA4A, BA3A) |> 
+    gt(rowname_col = "amendment", groupname_col = "depth") |> 
+    tab_header(title = "Fraction of Active Cells") |> 
+    data_color(columns = BA1B, palette = "Reds") |> 
+    data_color(columns = BA4A, palette = "Blues") |> 
+    data_color(columns = BA3A, palette = "Greens") |> 
+    fmt_percent(columns = c(BA1B, BA4A, BA3A)) |> 
+    cols_align(align = "center")
+gt_fraction_active_summary
+
+# save as .xlsx and gt
+writexl::write_xlsx(fraction_active_summary, "data_output/fraction_active.xlsx")
+gtsave(gt_fraction_active_summary, filename = "data_output/fraction_active.html")
+  
+```
+
+### 
+
+### Plot 5: Single Cell Volumes
+
+```{r}
+cell_vol_summary <- assim_data |> 
+  group_by(well, depth, amendment) |> 
+  summarize(
+    vol = mean(vol, na.rm = TRUE)
+  )
+
+p_cell_volumes <- assim_data |> 
+  filter(amendment != "negative control") |> # filter negative controls out
+  # add "quantified" where sample is quantified if 3sigma above the mean natabund ctl
+  mutate(quantified = if_else(
+    F13C > (neg_ctl_mean + (3*neg_ctl_sd)),
+    true = TRUE,
+    false = FALSE
+  )) |> 
+  mutate(
+    depth_str = factor(case_when(
+      depth == 20 ~ "Shallow (20m)",
+      depth == 150 ~ "Intermediate (150m)",
+      depth == 250 ~ "Deep (250/270m)",
+      depth == 270 ~ "Deep (250/270m)"
+    ),
+    levels = c("Shallow (20m)","Intermediate (150m)","Deep (250/270m)"),
+    ),
+    depth_str = fct_rev(depth_str),
+    well = factor(well, levels = c("BA1B", "BA4A", "BA3A"))
+  ) |> 
+  ggplot() +
+  aes(
+    x = vol,
+    y = depth_str,
+    color = quantified
+  ) +
+  ggdist::stat_halfeye(color = "black", scale = 0.5, point_interval = "mean_qi") +
+  scale_x_continuous(limits = c(0, 1)) +
+  scale_color_manual(values = c("red", "black")) +
+  facet_grid(vars(well)) +
+  theme_bw() +
+  labs(
+    x = latex2exp::TeX("Cell volume ($\\mu m ^3$)"),
+    y = "",
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "None",
+    panel.grid = element_blank(),
+    strip.background = element_blank(),
+    axis.text = element_text(color = "black")
+  )
+p_cell_volumes
+
+# cowplot::save_plot(filename = "fig_output/cell_volumes.pdf", plot = p_cell_volumes, base_height = 4, base_width = 6)
+```
+
+# Incubation times
+
+```{r}
+assim_data |> 
+  select(well, depth, amendment, dt) |> unique() |> arrange(well, depth, amendment) |> gt()
+```
+
+# How many cells?
+
+How many cells did we analyze? Each cell analyzed is represented by a single ROI. Let's count the number of ROIs.
+
+```{r}
+n_cells <- roi_data |> 
+  summarize(n()) |> 
+  pull()
+
+paste("A total of", n_cells, "individual microbial cells were analyzed by nanoSIMS in this study.")
+```
+
+# Statistical testing
+
+## Differences between wells
+
+We'll use a one-way ANOVA to test the differences between wells. For all our ANOVAs we will use a Type II, as we have an unbalanced design (our n, number of cells, differs between samples).
+
+```{r}
+# Pare down the data to the essentials:
+assim_data_anova <- assim_data |> 
+  select(well, depth_str, amendment, rC.fmol.d)
+
+# Create an lm object to feed the car::Anova
+well.lm <- lm(
+  data = assim_data_anova,
+  formula = rC.fmol.d ~ well
+)
+
+# Type II ANOVA - Anova(type = 2)
+well.aov <- car::Anova(well.lm, type = 2)
+
+well.aov
+```
+
+`ANOVA (Type II) F-statistic: 763.41 on 2 and 6298 DF, p-value: < 2.2e-16`.
+
+## Differences between C sources
+
+And we'll do the same thing between the carbon sources:
+
+```{r}
+# Create an lm object to feed the car::Anova
+carbon.lm <- lm(
+  data = assim_data_anova |> 
+    # factor to compare bicarb to others
+    mutate(amendment = factor(amendment, levels = c("bicarbonate", "acetate", "formate"))),
+  formula = rC.fmol.d ~ amendment
+)
+summary(carbon.lm)
+
+# Type II ANOVA - Anova(type = 2)
+carbon.aov <- car::Anova(carbon.lm, type = 2)
+carbon.aov
+
+
+```
+
+`ANOVA (Type II) F-statistic: 417.56 on 2 and 6296 DF, p-value < 2.2e-16`.
+
+## Acetate in BA1B vs. BA4A
+
+```{r}
+assim_acetate <- assim_data_anova |> filter(amendment == "acetate")
+
+acetate.lm <- lm(
+  data = assim_acetate,
+  formula = rC.fmol.d ~ well
+)
+
+acetate.aov <- car::Anova(acetate.lm, type = 2)
+acetate.aov
+
+summary(acetate.lm)
+```
+
+`F-statistic: 677.86 on 2 and 2010 DF, p-value: < 2.2e-16`
+
+### BA1B-250 max
+
+```{r}
+assim_data |> 
+  group_by(well, depth_str, amendment) |> 
+  summarize(rC.fmol.d = mean(rC.fmol.d, na.rm = TRUE)) |> 
+  arrange(rC.fmol.d)
+```
+
+# Export to cache
+
+```{r}
+# growth rate data
+saveRDS(growth_data, "cache/SIMS_growth_data.RDS")
+saveRDS(assim_data, "cache/SIMS_assim_data.RDS")
+saveRDS(assim_data_fmol_summary, "cache/assim_summary.RDS")
+assim_data |> writexl::write_xlsx("data_output/assim_data.xlsx")
+```
