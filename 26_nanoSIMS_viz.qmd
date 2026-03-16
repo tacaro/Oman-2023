@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.pyplot import figure
+from matplotlib_scalebar.scalebar import ScaleBar
 import cv2
 ```
 
@@ -58,6 +59,10 @@ fig1, ax1 = plt.subplots(figsize=(6, 6))
 plt.imshow(trimmed_12C)
 im1 = ax1.imshow(trimmed_12C, cmap="viridis")
 cbar1 = plt.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04, label="12C")
+ax1.set_xticks([])  # Remove x-axis ticks
+ax1.set_yticks([])  # Remove y-axis ticks
+scalebar = ScaleBar(0.0488, "um", length_fraction=0.25, location="lower right")
+ax1.add_artist(scalebar)
 plt.axis([0, 472, 0, 472])
 plt.plot()
 plt.show()
@@ -83,6 +88,10 @@ fig1, ax1 = plt.subplots(figsize=(6, 6))
 plt.imshow(trimmed_13C)
 im1 = ax1.imshow(trimmed_13C, cmap="viridis")
 cbar1 = plt.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04, label="13C")
+ax1.set_xticks([])  # Remove x-axis ticks
+ax1.set_yticks([])  # Remove y-axis ticks
+scalebar = ScaleBar(0.0488, "um", length_fraction=0.25, location="lower right")
+ax1.add_artist(scalebar)
 plt.axis([0, 472, 0, 472])
 plt.plot()
 plt.show()
@@ -91,12 +100,15 @@ plt.savefig("fig_output/BA4A_270_BIC_1_13C.png", dpi=300)
 
 
 ```{python}
-frac_13Cx12C = (trimmed_13C / (trimmed_12C + trimmed_13C))
+frac_13Cx12C = trimmed_13C / (trimmed_12C + trimmed_13C)
 
 fig1, ax1 = plt.subplots(figsize=(6, 6))
 plt.imshow(frac_13Cx12C)
-im1 = ax1.imshow(frac_13Cx12C, cmap="viridis")
 cbar1 = plt.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04, label="13C")
+ax1.set_xticks([])  # Remove x-axis ticks
+ax1.set_yticks([])  # Remove y-axis ticks
+scalebar = ScaleBar(0.0488, "um", length_fraction=0.25, location="lower right")
+ax1.add_artist(scalebar)
 plt.axis([0, 472, 0, 472])
 plt.plot()
 plt.show()
@@ -117,6 +129,10 @@ fig1, ax1 = plt.subplots(figsize=(6, 6))
 plt.imshow(trimmed_14N)
 im1 = ax1.imshow(trimmed_14N, cmap="viridis")
 cbar1 = plt.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04, label="14N12C")
+ax1.set_xticks([])  # Remove x-axis ticks
+ax1.set_yticks([])  # Remove y-axis ticks
+scalebar = ScaleBar(0.0488, "um", length_fraction=0.25, location="lower right")
+ax1.add_artist(scalebar)
 plt.axis([0, 472, 0, 472])
 plt.plot()
 plt.show()
@@ -136,6 +152,10 @@ fig1, ax1 = plt.subplots(figsize=(6, 6))
 plt.imshow(binary_array)
 im1 = ax1.imshow(binary_array, cmap="gray")
 cbar1 = plt.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04, label="ROI")
+ax1.set_xticks([])  # Remove x-axis ticks
+ax1.set_yticks([])  # Remove y-axis ticks
+scalebar = ScaleBar(0.0488, "um", length_fraction=0.25, location="lower right")
+ax1.add_artist(scalebar)
 # plt.axis([0, 472, 0, 472])
 plt.plot()
 plt.show()
