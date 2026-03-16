@@ -113,34 +113,40 @@ billionaires %>%
 
 # Calculate Gini for each well, depth, and amendment
 assim_gini <- assim_data |> 
+  select(-rC.fmol.d) |> 
+  filter(quantified) |> 
   group_by(depth_str, depth, well, amendment) |> 
   summarize(
-    gini = ineq::Gini(x = rC.fmol.d, corr = TRUE),
+    gini = ineq::Gini(x = rC.fmol.d2, corr = TRUE),
     gini_str = paste("Gini =", round(gini, digits = 2)),
-    mean_rC.fmol.d = mean(rC.fmol.d, na.rm = TRUE)
+    mean_rC.fmol.d = mean(rC.fmol.d2, na.rm = TRUE)
   ) |> 
   ungroup() |> 
   mutate(
     xpos = 0.2,
     ypos = case_when(
       amendment == "bicarbonate" ~ 0.95,
-      amendment == "formate" ~ 0.85,
-      amendment == "acetate" ~ 0.75
+      amendment == "formate" ~ 0.75,
+      amendment == "acetate" ~ 0.85
     )
   )
 
 # Calculate Gini for each well and depth, average across amendments
 p_gini <- assim_data |> 
+  filter(quantified) |> 
+  mutate(
+    amendment = factor(amendment, levels = c("bicarbonate", "acetate", "formate"))
+  ) |> 
   ggplot(
     aes(
-      x = rC.fmol.d,
+      x = rC.fmol.d2,
       linetype = amendment
     )
   ) +
   geom_vline(xintercept = 0.5, color = "gray", linewidth = 0.1) +
   geom_hline(yintercept = 0.5, color = "gray", linewidth = 0.1) +
   stat_lorenz(
-    aes(color = amendment),
+    #aes(color = amendment),
     geom = "path"
   ) +
   geom_label(
@@ -186,9 +192,10 @@ p_gini
 ```{r}
 well_gini <- assim_data |> 
   group_by(well, depth) |> 
+  filter(quantified) |> 
   summarize(
-    gini = ineq::Gini(x = rC.fmol.d, corr = TRUE),
-    mean_rC.fmol.d = mean(rC.fmol.d, na.rm = TRUE)
+    gini = ineq::Gini(x = rC.fmol.d2, corr = TRUE),
+    mean_rC.fmol.d = mean(rC.fmol.d2, na.rm = TRUE)
   ) |> 
   ungroup() |> 
   mutate(
@@ -215,7 +222,7 @@ p_well_gini <- assim_data |>
     ) |> 
   ggplot(
     aes(
-      x = rC.fmol.d,
+      x = rC.fmol.d2,
     )
   ) +
   geom_label(
