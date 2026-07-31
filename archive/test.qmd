@@ -1,0 +1,42 @@
+---
+format: html
+editor: visual
+---
+
+The text above is known as a YAML "frontmatter". It just defines how the .qmd file appears.
+
+Format: how it's exported. Here, it'll export as HTML if you ever want to send it to someone.
+
+Editor: `visual` (looks nicer, more like jupyter) or `source` (looks uglier, like plain text, but faster.)
+
+# Title: Shai's example quarto file
+
+Here I can write text explaining what my script does. It uses the same markdown format as normal markdown, meaning I can use single backticks to `emphasize code snippets`, *astericks for italics*, **double astericks for bold**, *underline*.
+
+-   I
+-   can
+-   do
+-   lists
+
+inline latex math $e=mc^2$
+
+and chunk latex math: $$
+e=mc^2
+$$
+
+I create code chunks with triple backticks
+
+```         
+print("Hello world!")
+```
+
+This is *display code*, it does not execute until you put a language in brackets! As below.
+
+```{python}
+import matplotlib as plt
+print("Hello world!")
+
+plt.show()
+```
+
+To run the code above, you can click the "run cell" button or you can do cmd+shift+enter with your cursor inside.
