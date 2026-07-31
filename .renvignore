@@ -1,0 +1,26 @@
+# Directories with no R/Quarto source code — exclude from renv's dependency
+# scan so `renv::snapshot()`/`renv::status()` don't waste time walking raw
+# data files. Code embedded in data/ (the DIC reduction notebooks) is
+# intentionally NOT ignored, since renv needs to see its library() calls.
+fig_output/
+data_output/
+cache/
+data/16S/
+data/16S_batch2/
+data/EQ3_output/
+data/IC-ICP/
+data/Kelemen 2020/
+data/Nikon-Widefield/
+data/Oman 2020 Gas Data/
+data/OpenWGL_2024/
+data/PNNL_NMR/
+data/Picarro/
+data/Raman/
+data/Templeton 2021/
+data/cline_assays/
+data/gc_data/
+data/nanoSIMS_example_images/
+data/nanoSIMS_tables/
+archive/data/
+archive/data_output/
+archive/03_nanoSIMS_processing_files/

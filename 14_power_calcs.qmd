@@ -63,7 +63,6 @@ msp_lit_data |>
   theme(
     panel.grid = element_blank()
   )
-
 ```
 
 # Energy requirement calculations
@@ -148,7 +147,7 @@ $$
 #| label: calculate mu star and MSP
 
 assim_data_summary <- assim_data |>
-  filter(amendment != "negative control") |> # remove negative control data
+  filter(amendment == "bicarbonate") |> # remove negative control data
   select(-c(F13C, K2, sample_id)) |> # clean up columns
   rename(fmolC_per_cell_day = rC.fmol.d2, TG.d = gen.d) |> # rename to intuitive name
   mutate(
@@ -227,95 +226,95 @@ assim_data_summary |>
 
 ```{r}
 library(gt)
-mu_star_gt <- assim_data_summary |>
-  filter(mu_star.yr > 0) |>
-  select(well, depth, amendment, mu_star.yr, cell.C.fg, MSP.J_s_g) |>
-  group_by(well, depth, amendment) |>
-  dplyr::summarise(
-    mu_star_median = median(mu_star.yr),
-    fgC_biomass_median = median(cell.C.fg),
-    MSP_WgC_median = median(MSP.J_s_g)
-  ) |>
-  ungroup() |>
-  pivot_wider(
-    names_from = c(amendment),
-    values_from = c(mu_star_median, fgC_biomass_median, MSP_WgC_median)
-  ) |>
-  gt::gt() |>
-  gt::cols_label(
-    well = "Borehole",
-    depth = "Depth (mbls)",
-    mu_star_median_bicarbonate = "bicarbonate",
-    mu_star_median_acetate = "acetate",
-    mu_star_median_formate = "formate",
-    fgC_biomass_median_bicarbonate = "bicarbonate",
-    fgC_biomass_median_acetate = "acetate",
-    fgC_biomass_median_formate = "formate",
-    MSP_WgC_median_bicarbonate = "bicarbonate",
-    MSP_WgC_median_acetate = "acetate",
-    MSP_WgC_median_formate = "formate"
-  ) |>
-  gt::tab_spanner(
-    columns = c(
-      mu_star_median_bicarbonate,
-      mu_star_median_acetate,
-      mu_star_median_formate
-    ),
-    label = "µ* {{(yr^-1 )}}"
-  ) |>
-  gt::tab_spanner(
-    columns = c(
-      fgC_biomass_median_bicarbonate,
-      fgC_biomass_median_acetate,
-      fgC_biomass_median_formate
-    ),
-    label = "Cell-specific biomass (fg C)"
-  ) |>
-  gt::tab_spanner(
-    columns = c(
-      MSP_WgC_median_bicarbonate,
-      MSP_WgC_median_acetate,
-      MSP_WgC_median_formate
-    ),
-    label = "MSP {{(W g C^-1 )}}"
-  ) |>
-  gt::data_color(
-    columns = c(
-      fgC_biomass_median_bicarbonate,
-      fgC_biomass_median_acetate,
-      fgC_biomass_median_formate
-    ),
-    palette = "Blues"
-  ) |>
-  gt::data_color(
-    columns = c(
-      MSP_WgC_median_bicarbonate,
-      MSP_WgC_median_acetate,
-      MSP_WgC_median_formate
-    ),
-    palette = "Greens"
-  ) |>
-  gt::data_color(
-    columns = c(
-      mu_star_median_bicarbonate,
-      mu_star_median_acetate,
-      mu_star_median_formate
-    ),
-    palette = "Reds"
-  ) |>
-  gt::fmt_scientific(columns = -c(well, depth)) |>
-  gt::fmt_number(
-    decimals = 1,
-    columns = c(
-      fgC_biomass_median_bicarbonate,
-      fgC_biomass_median_acetate,
-      fgC_biomass_median_formate
-    )
-  )
+# mu_star_gt <- assim_data_summary |>
+#   filter(mu_star.yr > 0) |>
+#   select(well, depth, amendment, mu_star.yr, cell.C.fg, MSP.J_s_g) |>
+#   group_by(well, depth, amendment) |>
+#   dplyr::summarise(
+#     mu_star_median = median(mu_star.yr),
+#     fgC_biomass_median = median(cell.C.fg),
+#     MSP_WgC_median = median(MSP.J_s_g)
+#   ) |>
+#   ungroup() |>
+#   pivot_wider(
+#     names_from = c(amendment),
+#     values_from = c(mu_star_median, fgC_biomass_median, MSP_WgC_median)
+#   ) |>
+#   gt::gt() |>
+#   gt::cols_label(
+#     well = "Borehole",
+#     depth = "Depth (mbls)",
+#     mu_star_median_bicarbonate = "bicarbonate",
+#     mu_star_median_acetate = "acetate",
+#     mu_star_median_formate = "formate",
+#     fgC_biomass_median_bicarbonate = "bicarbonate",
+#     fgC_biomass_median_acetate = "acetate",
+#     fgC_biomass_median_formate = "formate",
+#     MSP_WgC_median_bicarbonate = "bicarbonate",
+#     MSP_WgC_median_acetate = "acetate",
+#     MSP_WgC_median_formate = "formate"
+#   ) |>
+#   gt::tab_spanner(
+#     columns = c(
+#       mu_star_median_bicarbonate,
+#       mu_star_median_acetate,
+#       mu_star_median_formate
+#     ),
+#     label = "µ* {{(yr^-1 )}}"
+#   ) |>
+#   gt::tab_spanner(
+#     columns = c(
+#       fgC_biomass_median_bicarbonate,
+#       fgC_biomass_median_acetate,
+#       fgC_biomass_median_formate
+#     ),
+#     label = "Cell-specific biomass (fg C)"
+#   ) |>
+#   gt::tab_spanner(
+#     columns = c(
+#       MSP_WgC_median_bicarbonate,
+#       MSP_WgC_median_acetate,
+#       MSP_WgC_median_formate
+#     ),
+#     label = "MSP {{(W g C^-1 )}}"
+#   ) |>
+#   gt::data_color(
+#     columns = c(
+#       fgC_biomass_median_bicarbonate,
+#       fgC_biomass_median_acetate,
+#       fgC_biomass_median_formate
+#     ),
+#     palette = "Blues"
+#   ) |>
+#   gt::data_color(
+#     columns = c(
+#       MSP_WgC_median_bicarbonate,
+#       MSP_WgC_median_acetate,
+#       MSP_WgC_median_formate
+#     ),
+#     palette = "Greens"
+#   ) |>
+#   gt::data_color(
+#     columns = c(
+#       mu_star_median_bicarbonate,
+#       mu_star_median_acetate,
+#       mu_star_median_formate
+#     ),
+#     palette = "Reds"
+#   ) |>
+#   gt::fmt_scientific(columns = -c(well, depth)) |>
+#   gt::fmt_number(
+#     decimals = 1,
+#     columns = c(
+#       fgC_biomass_median_bicarbonate,
+#       fgC_biomass_median_acetate,
+#       fgC_biomass_median_formate
+#     )
+#   )
 
-mu_star_gt
+# mu_star_gt
 
-gt::gtsave(data = mu_star_gt, filename = "data_output/mu_star_etal.html")
+#gt::gtsave(data = mu_star_gt, filename = "data_output/mu_star_etal.html")
 ```
 
 ```{r}
@@ -397,7 +396,7 @@ $$
 
 ```{r}
 tonne_h2_to_tonne_ch4 <- function(H2_tonnes) {
-  ch4_tonnes = H2_tonnes * 1e6 * (1 / 2.01568) * (1 / 4) * (16.04) * (1 / 1e6)
+  ch4_tonnes <- H2_tonnes * 1e6 * (1 / 2.01568) * (1 / 4) * (16.04) * (1 / 1e6)
   return(ch4_tonnes)
 }
 ```
@@ -440,8 +439,6 @@ assim_metabolic <- assim_data_summary |>
       MA_H2ox.tonnes_yr_km3_ADJ.lower
     )
   )
-
-
 ```
 
 ### Check H2 vs. CH4 stoich
@@ -468,7 +465,6 @@ assim_metabolic |>
   theme(
     aspect.ratio = 1
   )
-
 ```
 
 ### Histogram of VSP
@@ -836,8 +832,6 @@ paste(
   mean_cell_mass_gC,
   "g C"
 )
-
-
 ```
 
 Tabulate Mark Lever's energy requirements and convert to MSP
@@ -845,9 +839,9 @@ Tabulate Mark Lever's energy requirements and convert to MSP
 ```{r}
 # have it be a function
 energy_turnover_to_MSP <- function(kJ_per_cell_yr, cell_mass_gC) {
-  J_per_cell_yr = kJ_per_cell_yr * 1000 # 1000 J per kJ
-  J_per_gC_yr = J_per_cell_yr * (1 / cell_mass_gC)
-  W_gC = J_per_gC_yr * (1 / 31536000) # 31536000 seconds per year
+  J_per_cell_yr <- kJ_per_cell_yr * 1000 # 1000 J per kJ
+  J_per_gC_yr <- J_per_cell_yr * (1 / cell_mass_gC)
+  W_gC <- J_per_gC_yr * (1 / 31536000) # 31536000 seconds per year
   return(W_gC)
 }
 
@@ -955,8 +949,6 @@ litreview_combined <- litreview |>
   mutate(median_msp = median(MSP.J_s_g, na.rm = TRUE)) |>
   ungroup() |>
   mutate(group = fct_rev(fct_reorder(group, median_msp)))
-
-
 ```
 
 Inspect sediment data
@@ -981,7 +973,7 @@ Plot our data
 ```{r}
 # plot the standard error
 se <- function(vector) {
-  standard_error = sd(vector, na.rm = TRUE) / sqrt(length(vector))
+  standard_error <- sd(vector, na.rm = TRUE) / sqrt(length(vector))
   return(standard_error)
 }
 
@@ -1344,7 +1336,6 @@ assim_metabolic |> pull(MSP.J_s_g) |> max(na.rm = TRUE)
 
 # 2.370904e-06
 assim_metabolic |> pull(MSP.J_s_g) |> min(na.rm = TRUE)
-
 ```
 
 median MSP
@@ -1411,7 +1402,6 @@ gt_flux <- assim_metabolic |>
 gt_flux
 
 gtsave(gt_flux, filename = "data_output/h2ch4_table2.html")
-
 ```
 
 # Export
@@ -1432,27 +1422,26 @@ median_MSP_C <- assim_metabolic |>
   left_join(median_MSP, by = c("well", "depth")) |>
   ungroup()
 
-gt_MSP <- median_MSP_C |>
-  gt::gt(groupname_col = "well") |>
-  gt::cols_label(all = "median") |>
-  gt::fmt_scientific(columns = -depth) |>
-  gt::tab_spanner(
-    columns = c(bicarbonate, acetate, formate, all),
-    label = "MSP (W (g C){{^-1}}"
-  ) |>
-  gt::cols_align("center") |>
-  gt::data_color(columns = all, palette = "viridis") |>
-  gt::summary_rows(
-    columns = -depth,
-    fn = list("median"),
-    fmt = list(~ gt::fmt_scientific(., decimals = 2))
-  )
+# gt_MSP <- median_MSP_C |>
+#   gt::gt(groupname_col = "well") |>
+#   gt::cols_label(all = "median") |>
+#   gt::fmt_scientific(columns = -depth) |>
+#   gt::tab_spanner(
+#     columns = c(bicarbonate, acetate, formate, all),
+#     label = "MSP (W (g C){{^-1}}"
+#   ) |>
+#   gt::cols_align("center") |>
+#   gt::data_color(columns = all, palette = "viridis") |>
+#   gt::summary_rows(
+#     columns = -depth,
+#     fn = list("median"),
+#     fmt = list(~ gt::fmt_scientific(., decimals = 2))
+#   )
 
+# gt_MSP
 
-gt_MSP
-
-gt_MSP |> gt::gtsave("data_output/MSP.html")
-median_MSP_C |> writexl::write_xlsx("data_output/MSP.xlsx")
+# gt_MSP |> gt::gtsave("data_output/MSP.html")
+# median_MSP_C |> writexl::write_xlsx("data_output/MSP.xlsx")
 ```
 
 # FIG - Full Plot
@@ -1556,6 +1545,18 @@ cell_density_params <- cell_density_data |>
       cell_dens_sd_log10
     )
   )
+
+# ── Cache MC input parameters (consumed by 14b_input_dist.qmd) ────────────────
+
+write_rds(
+  list(
+    n_sim = N_SIM,
+    global_params = PARAMS,
+    assim_params = assim_params,
+    cell_density_params = cell_density_params
+  ),
+  "cache/mc_input_params.RDS"
+)
 
 # ── Monte Carlo sampler ───────────────────────────────────────────────────────
 
@@ -1789,6 +1790,22 @@ sensitivity_all <- assim_metabolic_mc |>
 unnested_assim_metabolic_mc <- assim_metabolic_mc |>
   mutate(mc_raw = map(mc_raw, \(x) slice_sample(x, n = 500))) |>
   unnest(mc_raw)
+```
+
+```{r}
+# ── Cache MC results & sensitivity outputs (consumed by 14c_sensitivity.qmd) ──
+
+write_rds(
+  list(
+    mc_summaries = mc_summaries,
+    sensitivity_all = sensitivity_all,
+    site_covariates = assim_metabolic_mc |>
+      select(-mc_raw, -mc_summary, -sensitivity),
+    unnested_mc = unnested_assim_metabolic_mc |>
+      select(-mc_summary, -sensitivity)
+  ),
+  "cache/mc_results.RDS"
+)
 ```
 
 ## visualize
@@ -2038,4 +2055,15 @@ cowplot::save_plot(
   base_height = 9,
   base_width = 11
 )
+```
+
+
+```{r}
+mc_intervals |>
+  filter(flux_type == "H2 consumption") |>
+  arrange(flux)
+
+mc_intervals |>
+  filter(flux_type == "CH4 production") |>
+  arrange(flux)
 ```
