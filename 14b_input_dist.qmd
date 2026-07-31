@@ -1,0 +1,200 @@
+---
+title: "14b: Monte Carlo Input Distributions"
+format: html
+editor: source
+editor_options:
+  chunk_output_type: console
+---
+
+In R2R, requested that we specify input distributions. This script reads `cache/mc_input_params.RDS` the exact parameter objects (`PARAMS`, `assim_params`, `cell_density_params`) used by the Monte Carlo sampler in `14_power_calcs.qmd`
+
+If `14_power_calcs.qmd` changes what it samples, re-run it first (it re-writes `cache/mc_input_params.RDS` as its final step before the sampler runs) and then re-run this script!
+
+# Setup
+
+```{r}
+library(tidyverse)
+
+mc_inputs <- read_rds("cache/mc_input_params.RDS")
+n_sim <- mc_inputs$n_sim
+global_params <- mc_inputs$global_params
+assim_params <- mc_inputs$assim_params
+cell_density_params <- mc_inputs$cell_density_params
+```
+
+The Monte Carlo simulation draws `r n_sim` independent samples per well/depth site (9 sites total = `r n_sim * 9` total simulations) from six input distributions. Three are global and three are site-specific (a distinct log-normal distribution fit per well or per well/depth).
+
+# Global input distributions
+
+`delta_G`, `hab_depth_km`, and `stim_factor` are each drawn from a Uniform distribution, identical for every well/depth site.
+
+```{r}
+global_dist_table <- tibble(
+  parameter = c("delta_G", "hab_depth_km", "stim_factor"),
+  description = c(
+    "Gibbs free energy yield of hydrogenotrophic methanogenesis (4H2 + CO2 -> CH4 + 2H2O), bounded by two thermodynamic endmembers spanning the range of Samail ophiolite fluid geochemistry",
+    "Habitable subsurface depth over which volume-specific power is integrated to landscape-scale flux",
+    "H2-stimulation correction factor: divides MSP to account for ex situ mesocosm incubations being initiated at H2 concentrations above ambient, per the Monod-kinetics argument in 'Accounting for uncertainties'"
+  ),
+  distribution = "Uniform",
+  min = map_dbl(
+    global_params[c("delta_G", "hab_depth_km", "stim_factor")],
+    "min"
+  ),
+  max = map_dbl(
+    global_params[c("delta_G", "hab_depth_km", "stim_factor")],
+    "max"
+  ),
+  units = c(
+    "J / tonne H2 (1.26e10-2.393e10 J/tonne H2 = -25.1 to -47.8 kJ/mol H2)",
+    "km",
+    "dimensionless (divisor applied to MSP)"
+  ),
+  n_draws_per_site = n_sim
+)
+
+global_dist_table
+```
+
+Three additional constants set the *fallback* standard deviation (in log10 space) used for a site-specific log-normal distribution below, only when that site/well has fewer than 2 replicate measurements to estimate an empirical SD from:
+
+```{r}
+fallback_sd_table <- tibble(
+  parameter = c(
+    "cell_density_log_sd_default",
+    "msp_log_sd_default",
+    "cell_c_log_sd_default"
+  ),
+  applies_to = c(
+    "cell_dens_mean_log10 (per well)",
+    "MSP_mean_log10 (per well/depth)",
+    "cellC_mean_log10 (per well/depth)"
+  ),
+  fallback_sd_log10 = map_dbl(
+    global_params[c(
+      "cell_density_log_sd_default",
+      "msp_log_sd_default",
+      "cell_c_log_sd_default"
+    )],
+    identity
+  )
+)
+
+fallback_sd_table
+```
+
+# Site-specific input distributions
+
+## Cell density (per well)
+
+Log-normally distributed in cells/cm3 (i.e. `10^Normal(mean_log10, sd_log10)`), fit from replicate cell-density measurements per well (Templeton et al. 2021 data extracted by `27_convert_pdf_to_xl.qmd`). 
+
+Rock density is assumed to be `r 2.7` g/cm3 to convert cells/g to cells/cm3.
+
+```{r}
+cell_density_dist_table <- cell_density_params |>
+  mutate(
+    distribution = "Log-normal (log10 cells/cm3)",
+    median_cells_per_cm3 = 10^cell_dens_mean_log10,
+    sd_is_fallback_default = n_replicates < 2
+  ) |>
+  select(
+    well,
+    distribution,
+    mean_log10 = cell_dens_mean_log10,
+    sd_log10 = cell_dens_sd_log10,
+    median_cells_per_cm3,
+    n_replicates,
+    sd_is_fallback_default
+  )
+
+cell_density_dist_table
+```
+
+## Mass-specific power & single-cell carbon (per well/depth)
+
+Both log-normally distributed, fit per well/depth site from the single-cell nanoSIMS-SIP dataset `cache/SIMS_assim_data.RDS`.
+
+```{r}
+site_dist_table <- assim_params |>
+  mutate(
+    MSP_distribution = "Log-normal (log10 W (g C)-1)",
+    MSP_median_W_gC = 10^MSP_mean_log10,
+    MSP_sd_is_fallback_default = n_cells < 2,
+    cellC_distribution = "Log-normal (log10 fg C cell-1)",
+    cellC_median_fgC = 10^cellC_mean_log10,
+    cellC_sd_is_fallback_default = n_cells < 2
+  ) |>
+  select(
+    well,
+    depth,
+    n_cells,
+    MSP_distribution,
+    MSP_mean_log10,
+    MSP_sd_log10,
+    MSP_median_W_gC,
+    MSP_sd_is_fallback_default,
+    cellC_distribution,
+    cellC_mean_log10,
+    cellC_sd_log10,
+    cellC_median_fgC,
+    cellC_sd_is_fallback_default
+  )
+
+site_dist_table
+```
+
+No site in this dataset has fewer than 2 quantified cells or fewer than 2 cell-density replicates, so the fallback default SDs above are not actually invoked for the results in the manuscript!
+
+```{r}
+stopifnot(!any(cell_density_dist_table$sd_is_fallback_default))
+stopifnot(!any(site_dist_table$MSP_sd_is_fallback_default))
+stopifnot(!any(site_dist_table$cellC_sd_is_fallback_default))
+```
+
+# Export
+
+Write every table above to a single multi-sheet workbook.
+
+```{r}
+readme <- tibble(
+  section = c(
+    "Overview",
+    "Global distributions",
+    "Cell density",
+    "MSP / cell carbon",
+    "Sampling",
+    "Source"
+  ),
+  notes = c(
+    "The Monte Carlo simulation in 14_power_calcs.qmd (section '## run montecarlo') draws parameters from 6 input distributions per well/depth site: 3 global (identical at every site) and 3 site-specific (fit from data). See the 'global_distributions', 'cell_density_by_well', and 'MSP_and_cellC_by_site' sheets.",
+    "delta_G, hab_depth_km, and stim_factor are Uniform, identical for all 9 sites.",
+    "Cell density is Log-normal, fit per well (3 wells) from replicate cell-density counts (Templeton et al. 2021).",
+    "Mass-specific power (MSP) and single-cell carbon content are each Log-normal, fit per well/depth (9 sites) from the nanoSIMS-SIP single-cell dataset.",
+    paste0(
+      n_sim,
+      " independent draws per site (",
+      n_sim * 9,
+      " total simulations)."
+    ),
+    "Generated from cache/mc_input_params.RDS, written by 14_power_calcs.qmd."
+  )
+)
+
+writexl::write_xlsx(
+  list(
+    readme = readme,
+    global_distributions = global_dist_table,
+    fallback_sd_defaults = fallback_sd_table,
+    cell_density_by_well = cell_density_dist_table,
+    MSP_and_cellC_by_site = site_dist_table
+  ),
+  path = "data_output/monte_carlo_input_distributions.xlsx"
+)
+```
+
+
+
+```{r}
+global_dist_table |> glimpse()
+```
