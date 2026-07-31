@@ -660,17 +660,24 @@ p_crds_diff_new <- crds_diff |>
   ) |>
   mutate(
     detected = case_when(
+      well == "BA3A" & depth == 150 & amendment == "bicarbonate" ~ FALSE,
+      well == "BA3A" & depth == 270 & amendment == "bicarbonate" ~ FALSE,
       well == "BA3A" & depth == 150 & amendment == "formate" ~ FALSE,
       well == "BA3A" & depth == 270 & amendment == "formate" ~ FALSE,
       well == "BA3A" & depth == 150 & amendment == "acetate" ~ FALSE,
       well == "BA3A" & depth == 270 & amendment == "acetate" ~ FALSE,
       TRUE ~ TRUE
-    )
+    ),
+    depth_str = fct_rev(depth_str),
+    amendment = fct_rev(factor(
+      amendment,
+      levels = c("bicarbonate", "acetate", "formate")
+    ))
   ) |>
   ggplot(
     aes(
       x = percent_ch4_from_label,
-      y = depth_str,
+      y = amendment,
       shape = detected
     )
   ) +
@@ -680,13 +687,14 @@ p_crds_diff_new <- crds_diff |>
       fill = well,
       xmin = percent_ch4_from_label_lower,
       xmax = percent_ch4_from_label_upper
-    )
+    ),
+    size = 1
   ) +
   coord_cartesian(xlim = c(0, 100)) +
   scale_x_continuous(labels = scales::label_percent(scale = 1)) +
   scale_shape_manual(values = c(4, 21)) +
   scale_fill_brewer() +
-  facet_grid(amendment ~ well_str) +
+  facet_grid(depth_str ~ well_str) +
   theme_minimal() +
   labs(
     x = latex2exp::TeX("Fraction $CH_4$ from $^{13}C$ Probe"),
@@ -702,6 +710,7 @@ p_crds_diff_new <- crds_diff |>
     panel.grid.major = element_line(linewidth = 0.25, color = "gray"),
     panel.spacing = unit(2, "lines"),
     strip.text = element_text(face = "bold", size = 12),
+    strip.text.y = element_text(angle = 0),
     axis.text = element_text(size = 10),
     legend.position = "none"
   )
