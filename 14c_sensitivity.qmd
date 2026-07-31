@@ -1,0 +1,379 @@
+---
+title: "14c: Uncertainty & Sensitivity Discussion"
+format: html
+editor_options:
+  chunk_output_type: console
+---
+
+This script distinguishes two different sources of variability in the Monte Carlo flux estimates (`14_power_calcs.qmd`, Fig. 4B) and quantifies what drives each:
+
+1.  **Within-site variability**: the spread of the 10,000 Monte Carlo draws *at a single well/depth*, driven by parameter uncertainty (delta_G, habitable depth, H2-stimulation factor) and by cell-to-cell biological heterogeneity (MSP, cell carbon).
+
+2.  **Across-site variability**: the spread of *median* flux estimates *between* the 9 well/depth sites, driven by real, systematic differences in measured single-cell physiology, cell density, and community composition between boreholes/depths.
+
+It reads `cache/mc_input_params.RDS` and `cache/mc_results.RDS`, both written by `14_power_calcs.qmd`. Re-run that script first if the Monte Carlo model has changed.
+
+# Setup
+
+```{r}
+library(tidyverse)
+source("source/theme_om23.R") # my fav theme
+source("source/color_palettes.R")
+
+mc_inputs <- read_rds("cache/mc_input_params.RDS")
+mc <- read_rds("cache/mc_results.RDS")
+
+mc_summaries <- mc$mc_summaries
+sensitivity_all <- mc$sensitivity_all
+site_covariates <- mc$site_covariates
+```
+
+# 1. Within-site variability
+
+For each well/depth site, the 95% CI (2.5th-97.5th percentile of the 10,000 Monte Carlo draws) spans a certain number of orders of magnitude.
+
+```{r}
+within_site_ranges <- mc_summaries |>
+  transmute(
+    well,
+    depth,
+    log10_range_CH4 = log10(CH4_tonnes_yr_km3_ADJ__q975) -
+      log10(CH4_tonnes_yr_km3_ADJ__q025),
+    log10_range_H2ox = log10(H2ox_tonnes_yr_km3_ADJ__q975) -
+      log10(H2ox_tonnes_yr_km3_ADJ__q025)
+  ) |>
+  arrange(desc(log10_range_CH4))
+
+within_site_ranges
+```
+
+```{r}
+cat(
+  "Within-site 95% CI log10 range (orders of magnitude), CH4_ADJ:\n",
+  " median =",
+  round(median(within_site_ranges$log10_range_CH4), 2),
+  " min =",
+  round(min(within_site_ranges$log10_range_CH4), 2),
+  " max =",
+  round(max(within_site_ranges$log10_range_CH4), 2),
+  "(site:",
+  within_site_ranges$well[which.max(within_site_ranges$log10_range_CH4)],
+  within_site_ranges$depth[which.max(within_site_ranges$log10_range_CH4)],
+  ")\n"
+)
+```
+
+Within-site ranges span roughly 2.4-4.2 orders of magnitude across the 9 sites (median =3.3)
+
+## Which parameters drive within-site variability?
+
+`14_power_calcs.qmd` already computes a per-site, Spearman-rank-based variance decomposition (`sensitivity_all`, function `variance_sensitivity()`) across the 6 sampled parameters. summarized it here across all 9 sites:
+
+```{r}
+within_site_sensitivity_ranked <- sensitivity_all |>
+  group_by(parameter) |>
+  summarise(
+    median_pct_variance = median(pct_variance),
+    mean_pct_variance = mean(pct_variance),
+    min_pct_variance = min(pct_variance),
+    max_pct_variance = max(pct_variance),
+    .groups = "drop"
+  ) |>
+  arrange(desc(median_pct_variance))
+
+within_site_sensitivity_ranked
+```
+
+```{r}
+top_driver_per_site <- sensitivity_all |>
+  group_by(well, depth) |>
+  slice_max(pct_variance, n = 1) |>
+  ungroup()
+
+top_driver_per_site |>
+  count(parameter, name = "n_sites_where_top_driver", sort = TRUE)
+```
+
+```{r}
+p_within_sensitivity <- sensitivity_all |>
+  mutate(
+    parameter = fct_reorder(parameter, pct_variance, .fun = median),
+    site = paste0(well, " ", depth, "m")
+  ) |>
+  ggplot(aes(x = pct_variance, y = parameter)) +
+  ggdist::stat_pointinterval(point_interval = "median_qi") +
+  scale_color_manual(values = well_palette) +
+  labs(
+    x = "% of within-site variance (Spearman r^2, normalized)",
+    y = NULL,
+    color = "Borehole",
+    title = "Within-site sensitivity"
+  ) +
+  theme_om23()
+
+p_within_sensitivity
+```
+
+```{r}
+cowplot::save_plot(
+  filename = "fig_output/mc_within_site_sensitivity.pdf",
+  plot = p_within_sensitivity,
+  base_height = 5,
+  base_width = 7
+)
+```
+
+Cell density and single-cell mass-specific power (MSP) consistently explain the largest share of within-site variance (median \~39% and \~34% respectively), followed by the H2-stimulation factor (\~16%); the thermodynamic (delta_G) and habitable-depth terms each explain \<3% of within-site variance almost everywhere. This makes sense mechanistically: cell density and MSP are both drawn from empirically-fit, cell-count/cell-scale distributions with substantial biological spread, whereas delta_G and habitable depth are comparatively narrow, well-constrained uniform ranges.
+
+# 2. Across-site (whole-Ophiolite) variability
+
+Pooling across all 9 sites, the highest site's upper 95% CI bound and the lowest site's lower 95% CI bound together span the full range shown in Fig. 4B.
+
+```{r}
+across_site_range_CH4 <- log10(max(mc_summaries$CH4_tonnes_yr_km3_ADJ__q975)) -
+  log10(min(mc_summaries$CH4_tonnes_yr_km3_ADJ__q025))
+
+max_site <- mc_summaries |> slice_max(CH4_tonnes_yr_km3_ADJ__q975, n = 1)
+min_site <- mc_summaries |> slice_min(CH4_tonnes_yr_km3_ADJ__q025, n = 1)
+
+cat(
+  "Across-site (pooled) log10 range, CH4_ADJ:",
+  round(across_site_range_CH4, 2),
+  "orders of magnitude\n",
+  "Highest site:",
+  max_site$well,
+  paste0(max_site$depth, "m"),
+  "\n",
+  "Lowest site:",
+  min_site$well,
+  paste0(min_site$depth, "m"),
+  "\n"
+)
+```
+
+It combines two distinct things: (a) systematic differences in the *median* (central-tendency) flux between sites, driven by real between-site differences in measured biology/geochemistry, and (b) each site's own within-site stochastic spread (Section 1) stacked on top. We decompose (a) below.
+
+## Which site-level covariates drive the across-site difference in median flux?
+
+Because the flux model (`calc_methanogenesis()` in `14_power_calcs.qmd`) is a pure product of terms — MSP x cell carbon x cell density x Methanobacterium fraction x depth-scaling / delta_G, all divided by the stimulation factor — its logarithm is an exact **sum** of log-terms. Holding the three global, site-invariant parameters (delta_G, habitable depth, stimulation factor) fixed at the midpoint of their respective ranges isolates the four terms that actually differ between sites (MSP, cell carbon, cell density, Methanobacterium fractional abundance), and the gap between any two sites' reference-point flux decomposes *exactly* into an additive sum of each covariate's individual contribution (in log10 units).
+
+```{r}
+# Mirrors calc_methanogenesis() in 14_power_calcs.qmd (section "## run montecarlo"),
+# evaluated at a single reference point per site rather than resampled 10,000x.
+calc_methanogenesis_ref <- function(
+  MSP.J_s_g,
+  cell.C.fg,
+  sum_abund,
+  delta_G,
+  hab_depth_km,
+  stim_factor,
+  cell_dens_mult
+) {
+  MSP.J_s_g_corrected <- MSP.J_s_g / stim_factor
+  cell.C.g <- cell.C.fg / 1e15
+  CSP.J_s_cell <- MSP.J_s_g_corrected * cell.C.g
+  VSP.J_s_cm3_ADJ <- CSP.J_s_cell * cell_dens_mult * sum_abund
+  depth_scale <- hab_depth_km / 1.0
+  VSP.J_yr_km3_ADJ <- VSP.J_s_cm3_ADJ * 3.154e7 * 1e15 * depth_scale
+  H2ox_ADJ <- VSP.J_yr_km3_ADJ / delta_G
+  ch4_factor <- 16.04 / (4 * 2.016)
+  H2ox_ADJ * ch4_factor
+}
+
+delta_G_ref <- mean(c(
+  mc_inputs$global_params$delta_G$min,
+  mc_inputs$global_params$delta_G$max
+))
+hab_depth_km_ref <- mean(c(
+  mc_inputs$global_params$hab_depth_km$min,
+  mc_inputs$global_params$hab_depth_km$max
+))
+stim_factor_ref <- mean(c(
+  mc_inputs$global_params$stim_factor$min,
+  mc_inputs$global_params$stim_factor$max
+))
+
+site_reference_flux <- site_covariates |>
+  mutate(
+    CH4_ADJ_reference = calc_methanogenesis_ref(
+      MSP.J_s_g = 10^MSP_mean_log10,
+      cell.C.fg = 10^cellC_mean_log10,
+      sum_abund = sum_abund,
+      delta_G = delta_G_ref,
+      hab_depth_km = hab_depth_km_ref,
+      stim_factor = stim_factor_ref,
+      cell_dens_mult = 10^cell_dens_mean_log10
+    ),
+    log10_CH4_ADJ_reference = log10(CH4_ADJ_reference)
+  ) |>
+  arrange(desc(log10_CH4_ADJ_reference))
+
+site_reference_flux |>
+  select(
+    well,
+    depth,
+    MSP_mean_log10,
+    cellC_mean_log10,
+    cell_dens_mean_log10,
+    sum_abund,
+    CH4_ADJ_reference,
+    log10_CH4_ADJ_reference
+  )
+```
+
+```{r}
+ref_max <- site_reference_flux |> slice_max(log10_CH4_ADJ_reference, n = 1)
+ref_min <- site_reference_flux |> slice_min(log10_CH4_ADJ_reference, n = 1)
+
+across_site_decomposition <- tibble(
+  covariate = c(
+    "MSP (single-cell power)",
+    "Cell density",
+    "Cell carbon (single-cell biomass)",
+    "Methanobacterium fractional abundance"
+  ),
+  high_site = paste0(ref_max$well, " ", ref_max$depth, "m"),
+  low_site = paste0(ref_min$well, " ", ref_min$depth, "m"),
+  log10_contribution = c(
+    ref_max$MSP_mean_log10 - ref_min$MSP_mean_log10,
+    ref_max$cell_dens_mean_log10 - ref_min$cell_dens_mean_log10,
+    ref_max$cellC_mean_log10 - ref_min$cellC_mean_log10,
+    log10(ref_max$sum_abund) - log10(ref_min$sum_abund)
+  )
+) |>
+  mutate(
+    pct_of_total_gap = log10_contribution / sum(log10_contribution) * 100
+  ) |>
+  arrange(desc(abs(log10_contribution)))
+
+across_site_decomposition
+```
+
+```{r}
+total_reference_gap <- ref_max$log10_CH4_ADJ_reference -
+  ref_min$log10_CH4_ADJ_reference
+total_median_gap <- log10(max_site$CH4_tonnes_yr_km3_ADJ__median) -
+  log10(min_site$CH4_tonnes_yr_km3_ADJ__median)
+
+cat(
+  "Reference-point (delta_G/depth/stim fixed) log10 gap, highest vs. lowest site:",
+  round(total_reference_gap, 2),
+  "\n",
+  "True Monte Carlo median-based log10 gap, same two sites:",
+  round(total_median_gap, 2),
+  "\n",
+  "Remaining gap (",
+  round(across_site_range_CH4 - total_median_gap, 2),
+  "orders of magnitude) reflects each site's own within-site stochastic spread stacked at the pooled 95% CI tails (Section 1), not a between-site systematic effect.\n"
+)
+```
+
+```{r}
+high_label <- paste0(ref_max$well, " ", ref_max$depth, "m")
+low_label <- paste0(ref_min$well, " ", ref_min$depth, "m")
+
+p_across_decomp <- across_site_decomposition |>
+  mutate(covariate = fct_reorder(covariate, log10_contribution)) |>
+  ggplot(aes(
+    x = log10_contribution,
+    y = covariate,
+    fill = log10_contribution > 0
+  )) +
+  geom_col() +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  scale_fill_manual(
+    name = NULL,
+    breaks = c(TRUE, FALSE),
+    labels = c(
+      paste0("larger at ", high_label, " (highest-flux site)"),
+      paste0("larger at ", low_label, " (lowest-flux site)")
+    ),
+    values = c(`TRUE` = "#3182BD", `FALSE` = "#DE2D26")
+  ) +
+  labs(
+    # this is a DIFFERENCE of two log10 values (log10(A) - log10(B)), not a
+    # ratio -- a ratio of two positive quantities is itself always positive,
+    # but the difference of their logs is signed and centered on 0 (no
+    # difference), so negative values are expected whenever the covariate is
+    # larger at the low-flux site.
+    x = paste0(
+      "Difference of log10 covariates"
+    ),
+    y = "",
+    caption = paste0(
+      "Across-site decomposition: ",
+      high_label,
+      " (highest flux) vs. ",
+      low_label,
+      " (lowest flux)"
+    )
+  ) +
+  theme_om23() +
+  theme(legend.position = "none")
+
+p_across_decomp
+```
+
+```{r}
+cowplot::save_plot(
+  filename = "fig_output/mc_across_site_decomposition.pdf",
+  plot = p_across_decomp,
+  base_height = 4,
+  base_width = 7
+)
+```
+
+Single-cell mass-specific power (MSP) is the single largest driver of the across-site median-flux gap (\~60% of the systematic between-site difference), followed by cell density (\~31%) and single-cell carbon content (\~13%). Differences in *Methanobacterium* fractional abundance between sites make a small *negative* contribution — i.e., they work slightly against, not with, the overall gap between the highest- and lowest-flux sites, so community-composition shifts are not what makes deep hyperalkaline (BA3A) fluids so much lower than shallow mildly-alkaline (BA1B) fluids. That gap is driven almost entirely by genuinely slower and smaller single cells (lower MSP, lower cell carbon) at lower measured cell densities.
+
+# Summary
+
+The \~8 orders-of-magnitude range shown in Fig. 4B is the sum of two distinct, quantified sources of uncertainty:
+
+-   **\~4-5 orders of magnitude** is a real, systematic difference in the *median* flux between sites, attributable (in order of importance) to between-site differences in single-cell mass-specific power, cell density, and single-cell carbon content. This is biological/geochemical variation between boreholes and depths, not sampling noise.
+
+-   **The remaining \~3+ orders of magnitude** reflects within-site stochastic uncertainty (Section 1) stacked at the pooled distribution's tails, itself dominated by cell-to-cell heterogeneity in cell density and MSP (not by the epistemic delta_G/habitable-depth/H2-stimulation terms, which each contribute \<20% of within-site variance).
+
+# Export
+
+```{r}
+readme <- tibble(
+  section = c(
+    "Purpose",
+    "Within-site variability",
+    "Within-site sensitivity",
+    "Across-site variability",
+    "Across-site decomposition",
+    "Source"
+  ),
+  notes = c(
+    "Quantifies and attributes the >4 orders-of-magnitude within-site and >8 orders-of-magnitude across-site variability in Fig. 4B, per reviewer request.",
+    "Per-site log10(q97.5/q2.5) range of the 10,000 Monte Carlo draws. See 'within_site_ranges'.",
+    "Per-site Spearman-based variance decomposition (from 14_power_calcs.qmd), summarized across all 9 sites. See 'within_site_sensitivity_ranked'.",
+    "Pooled log10 range across all 9 sites' 95% CIs (highest site's q97.5 vs. lowest site's q2.5). See 'across_site_ranges'.",
+    "Exact additive log10 decomposition of the gap between the highest- and lowest-median-flux sites into MSP / cell density / cell carbon / Methanobacterium-abundance contributions, holding delta_G/habitable depth/stimulation factor fixed at their reference midpoints. See 'across_site_decomposition'.",
+    "Generated from cache/mc_input_params.RDS and cache/mc_results.RDS, both written by 14_power_calcs.qmd."
+  )
+)
+
+writexl::write_xlsx(
+  list(
+    readme = readme,
+    within_site_ranges = within_site_ranges,
+    within_site_sensitivity_ranked = within_site_sensitivity_ranked,
+    across_site_ranges = tibble(
+      metric = c(
+        "across_site_log10_range_CH4_ADJ",
+        "highest_site",
+        "lowest_site"
+      ),
+      value = c(
+        round(across_site_range_CH4, 3),
+        paste(max_site$well, max_site$depth),
+        paste(min_site$well, min_site$depth)
+      )
+    ),
+    across_site_decomposition = across_site_decomposition
+  ),
+  path = "data_output/mc_uncertainty_sensitivity_summary.xlsx"
+)
+```
