@@ -1444,6 +1444,15 @@ median_MSP_C <- assim_metabolic |>
 # median_MSP_C |> writexl::write_xlsx("data_output/MSP.xlsx")
 ```
 
+max and min
+```{r}
+median_MSP_C |>
+  filter(
+    all == max(median_MSP_C |> pull(max(all))) |
+      all == min(median_MSP_C |> pull(min(all)))
+  )
+```
+
 # FIG - Full Plot
 
 ```{r}
