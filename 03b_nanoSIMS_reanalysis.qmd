@@ -30,7 +30,6 @@ library(gt) # CRAN v0.10.0
 
 source("source/calculate_mu.R")
 source("source/calculate_sigma_mu.R")
-
 ```
 
 # Import data
@@ -46,11 +45,11 @@ data_path <- "data/nanoSIMS_tables/collected_tables_reanalysis/"
 if (file.exists("cache/nanoSIMS_data_reanalysis.RDS")) {
   roi_data <- readRDS("cache/roi_data_reanalysis.RDS")
 } else {
-  tsv_file_list = list.files(path = data_path, pattern = "*.tsv")
+  tsv_file_list <- list.files(path = data_path, pattern = "*.tsv")
 
   roi_data <- tibble()
   roi_data <- roi_data[-1, ] # Remove the garbage row of the tibble
-  i = 0
+  i <- 0
 
   for (tsv in tsv_file_list) {
     temp <- read_tsv(paste0(data_path, tsv), col_types = cols())
@@ -132,7 +131,7 @@ neg_ctl_sd <- roi_data |>
   pull(F13C) |>
   sd(na.rm = TRUE)
 
-custom_order = c(
+custom_order <- c(
   "BA1B negative control",
   "BA1B formate",
   "BA1B bicarbonate",
@@ -345,24 +344,24 @@ mass_balance_13C <- function(
   # mx and fx are natural abundance molarity (µM) and abundance
   # mk and fk are isotope spike molarity and abundance
   # vx and vk are volume of natural abundance and spike, respectively (Liters)
-  molarity_x = x_uM * 1e-6
-  molarity_k = k_uM * 1e-6
-  moles_x = molarity_x * x_L
-  moles_k = molarity_k * k_L
+  molarity_x <- x_uM * 1e-6
+  molarity_k <- k_uM * 1e-6
+  moles_x <- molarity_x * x_L
+  moles_k <- molarity_k * k_L
 }
 
 calculate_effective_F13C <- function(x_uM, k_uM, x_F13C, k_F13C, x_L, k_L) {
   # mx and fx are natural abundance molarity (µM) and abundance
   # mk and fk are isotope spike molarity and abundance
   # vx and vk are volume of natural abundance and spike, respectively (Liters)
-  molarity_x = x_uM * 1e-6
-  molarity_k = k_uM * 1e-6
-  moles_x = molarity_x * x_L
-  moles_k = molarity_k * k_L
-  moles_total = moles_x + moles_k
-  vol_total = x_L + k_L
-  effective_F13C = (moles_x * x_F13C + moles_k * k_F13C) / moles_total
-  molarity_final = moles_total / vol_total
+  molarity_x <- x_uM * 1e-6
+  molarity_k <- k_uM * 1e-6
+  moles_x <- molarity_x * x_L
+  moles_k <- molarity_k * k_L
+  moles_total <- moles_x + moles_k
+  vol_total <- x_L + k_L
+  effective_F13C <- (moles_x * x_F13C + moles_k * k_F13C) / moles_total
+  molarity_final <- moles_total / vol_total
   return(effective_F13C)
 }
 
@@ -371,15 +370,15 @@ calculate_effective_molarity <- function(x_uM, k_uM, x_F13C, k_F13C, x_L, k_L) {
   # mk and fk are isotope spike molarity and abundance
   # vx and vk are volume of natural abundance and spike, respectively (Liters)
   # option: return F13C or molarity?
-  molarity_x = x_uM * 1e-6
-  molarity_k = k_uM * 1e-6
-  moles_x = molarity_x * x_L
-  moles_k = molarity_k * k_L
-  moles_total = moles_x + moles_k
-  vol_total = x_L + k_L
-  effective_F13C = (moles_x * x_F13C + moles_k * k_F13C) / moles_total
-  molarity_final = moles_total / vol_total
-  uM_final = molarity_final * 1e6
+  molarity_x <- x_uM * 1e-6
+  molarity_k <- k_uM * 1e-6
+  moles_x <- molarity_x * x_L
+  moles_k <- molarity_k * k_L
+  moles_total <- moles_x + moles_k
+  vol_total <- x_L + k_L
+  effective_F13C <- (moles_x * x_F13C + moles_k * k_F13C) / moles_total
+  molarity_final <- moles_total / vol_total
+  uM_final <- molarity_final * 1e6
   return(uM_final)
 }
 
@@ -388,15 +387,15 @@ calculate_moles_spike <- function(x_uM, k_uM, x_F13C, k_F13C, x_L, k_L) {
   # mk and fk are isotope spike molarity and abundance
   # vx and vk are volume of natural abundance and spike, respectively (Liters)
   # option: return F13C or molarity?
-  molarity_x = x_uM * 1e-6
-  molarity_k = k_uM * 1e-6
-  moles_x = molarity_x * x_L
-  moles_k = molarity_k * k_L
-  moles_total = moles_x + moles_k
-  vol_total = x_L + k_L
-  effective_F13C = (moles_x * x_F13C + moles_k * k_F13C) / moles_total
-  molarity_final = moles_total / vol_total
-  uM_final = molarity_final * 1e6
+  molarity_x <- x_uM * 1e-6
+  molarity_k <- k_uM * 1e-6
+  moles_x <- molarity_x * x_L
+  moles_k <- molarity_k * k_L
+  moles_total <- moles_x + moles_k
+  vol_total <- x_L + k_L
+  effective_F13C <- (moles_x * x_F13C + moles_k * k_F13C) / moles_total
+  molarity_final <- moles_total / vol_total
+  uM_final <- molarity_final * 1e6
   return(moles_k)
 }
 
@@ -405,15 +404,15 @@ calculate_moles_pre <- function(x_uM, k_uM, x_F13C, k_F13C, x_L, k_L) {
   # mk and fk are isotope spike molarity and abundance
   # vx and vk are volume of natural abundance and spike, respectively (Liters)
   # option: return F13C or molarity?
-  molarity_x = x_uM * 1e-6
-  molarity_k = k_uM * 1e-6
-  moles_x = molarity_x * x_L
-  moles_k = molarity_k * k_L
-  moles_total = moles_x + moles_k
-  vol_total = x_L + k_L
-  effective_F13C = (moles_x * x_F13C + moles_k * k_F13C) / moles_total
-  molarity_final = moles_total / vol_total
-  uM_final = molarity_final * 1e6
+  molarity_x <- x_uM * 1e-6
+  molarity_k <- k_uM * 1e-6
+  moles_x <- molarity_x * x_L
+  moles_k <- molarity_k * k_L
+  moles_total <- moles_x + moles_k
+  vol_total <- x_L + k_L
+  effective_F13C <- (moles_x * x_F13C + moles_k * k_F13C) / moles_total
+  molarity_final <- moles_total / vol_total
+  uM_final <- molarity_final * 1e6
   return(moles_x)
 }
 
@@ -422,15 +421,15 @@ calculate_moles_total <- function(x_uM, k_uM, x_F13C, k_F13C, x_L, k_L) {
   # mk and fk are isotope spike molarity and abundance
   # vx and vk are volume of natural abundance and spike, respectively (Liters)
   # option: return F13C or molarity?
-  molarity_x = x_uM * 1e-6
-  molarity_k = k_uM * 1e-6
-  moles_x = molarity_x * x_L
-  moles_k = molarity_k * k_L
-  moles_total = moles_x + moles_k
-  vol_total = x_L + k_L
-  effective_F13C = (moles_x * x_F13C + moles_k * k_F13C) / moles_total
-  molarity_final = moles_total / vol_total
-  uM_final = molarity_final * 1e6
+  molarity_x <- x_uM * 1e-6
+  molarity_k <- k_uM * 1e-6
+  moles_x <- molarity_x * x_L
+  moles_k <- molarity_k * k_L
+  moles_total <- moles_x + moles_k
+  vol_total <- x_L + k_L
+  effective_F13C <- (moles_x * x_F13C + moles_k * k_F13C) / moles_total
+  molarity_final <- moles_total / vol_total
+  uM_final <- molarity_final * 1e6
   return(moles_total)
 }
 
@@ -452,7 +451,6 @@ calculate_effective_molarity(
   k_F13C = 0.99, # spike F13C (99 at %)
   k_L = 0.0005 # spike volume (0.5mL)
 )
-
 ```
 
 So let's apply this to our samples. We then calculate single-cell growth rate as per Caro et al. 2023, Kopf et al. 2015, etc.
@@ -785,7 +783,6 @@ gt_label_summary <- effective_label_summary |>
     subtitle = "Concentrations and isotopic compositions of stable isotope probes"
   )
 gt_label_summary
-
 
 #effective_label_summary |> writexl::write_xlsx(path = "data_output/effective_label_concentrations.xlsx")
 
@@ -1123,8 +1120,6 @@ growth_data_summary_for_gt <- growth_data |>
     min_gen.d = log(2) / max_mu.d
   ) |>
   ungroup()
-
-
 ```
 
 ## C assimilation rates
@@ -1185,7 +1180,7 @@ calculate_K <- function(a = 1, FT, Fi, FL) {
   # because we're comparing assimilation efficiencies between compounds
   # we set a = 1
   # use other values as appropriate
-  K = (a * FT - Fi) / (a * FL - Fi)
+  K <- (a * FT - Fi) / (a * FL - Fi)
 }
 ```
 
@@ -1220,13 +1215,13 @@ where:
 calculate_mcarbon_density <- function(rho, vol) {
   # rho is the carbon partial density of a cell in g/µm^3
   # v is cellular volume in µm^3
-  mass = rho * vol
+  mass <- rho * vol
   return(mass)
 }
 
 # this function uses Khachikyan et al. 2019 empirically-derived relationship
 calculate_mcarbon <- function(V) {
-  mass = 197 * (V^0.46)
+  mass <- 197 * (V^0.46)
   return(mass)
 }
 ```
@@ -1249,7 +1244,7 @@ If L = W, this relationship will express the volume of a sphere, and so is appli
 calculate_volume <- function(L, W) {
   # L and W are major and minor axis lengths in um
   # volume is returned in um^3
-  volume = ((1 / 2) * pi) * W^2 * ((1 / 3 * W) + ((1 / 2) * (L - W)))
+  volume <- ((1 / 2) * pi) * W^2 * ((1 / 3 * W) + ((1 / 2) * (L - W)))
   return(volume)
 }
 ```
@@ -1266,7 +1261,7 @@ where $µ_i$ is mass of assimilated carbon (*not to be confused with cell-specif
 calculate_assimilated_C <- function(mass, K) {
   # mass is cell-specific mass of carbon
   # K is fraction carbon that is incorporated
-  mu = mass * K
+  mu <- mass * K
   return(mu)
 }
 ```
@@ -1281,7 +1276,7 @@ $$
 calculate_assim_rate <- function(mu, t) {
   # mu is mass of assimilated carbon (fg)
   # the rate is assimilated carbon per unit time (fg/d for example)
-  rate = mu / t
+  rate <- mu / t
   return(rate)
 }
 
@@ -1291,7 +1286,7 @@ calculate_assim_rate_density <- function(rho, vol, K, t) {
   # v is cellular volume in µm^3
   # K is the fraction of cellular carbon that is from assimilated tracer
   # t is change in time
-  rate = (rho * vol * K) / t
+  rate <- (rho * vol * K) / t
 }
 ```
 
@@ -1327,12 +1322,12 @@ calculate_assim_rate_error <- function(
   del.t # uncertainty in T
 ) {
   # define partial derivative terms
-  dr.drho = (V * K) / t
-  dr.dV = (rho * K) / t
-  dr.dK = (rho * V) / t
-  dr.dt = -(rho * V * K) / (t^2)
+  dr.drho <- (V * K) / t
+  dr.dV <- (rho * K) / t
+  dr.dK <- (rho * V) / t
+  dr.dt <- -(rho * V * K) / (t^2)
 
-  del.rate = sqrt(
+  del.rate <- sqrt(
     (dr.drho * del.rho)^2 +
       (dr.dV * del.V)^2 +
       (dr.dK * del.K)^2 +
@@ -1377,7 +1372,7 @@ assim_data <- growth_data |>
   ) |>
   # compare rC values when calculated with K versus K2:
   mutate(rC.fmol.d_residual = rC.fmol.d2 - rC.fmol.d) |>
-  ########## NOTE #############
+  ########## NOTE! #############
   # K1 (eq. 3) calculates rC.fmol.d
   # K2 (eq. 4) calculates rC.fmol.d2
   mutate(
@@ -1596,7 +1591,6 @@ p_fmolC_k1k2 <- assim_data |>
   )
 
 p_fmolC_k1k2
-
 ```
 
 #### export for supp fig.
@@ -2066,7 +2060,6 @@ writexl::write_xlsx(
   assim_data_fmol_summary,
   path = "data_output/median_cscar.xlsx"
 )
-
 ```
 
 ### Table Summary of % Active Cells
@@ -2113,7 +2106,6 @@ gtsave(
   gt_fraction_active_summary,
   filename = "data_output/fraction_active.html"
 )
-
 ```
 
 ### 
@@ -2191,6 +2183,33 @@ assim_data |>
   gt()
 ```
 
+# Summary statistics
+
+Generate the numbers for main text reporting
+
+```{r}
+assim_main_text <- assim_data |>
+  select(well, depth_str, amendment, rC.fmol.d, quantified) |>
+  filter(quantified, amendment != "negative control") |> # not needed for summarizing
+  group_by(well, depth_str, amendment) |> # report median + SD for each condition
+  summarise(
+    rC.fmol.d_median = median(rC.fmol.d, na.rm = TRUE),
+    rC.fmol.d_SD = sd(rC.fmol.d, na.rm = TRUE)
+  )
+
+glimpse(assim_main_text)
+
+# give nice table for BA3A
+assim_main_text |>
+  filter(well == "BA3A") |>
+  arrange(rC.fmol.d_median) |>
+  knitr::kable()
+
+# give nice table, ordered
+assim_main_text |> arrange(rC.fmol.d_median, amendment) |> knitr::kable()
+```
+
+
 # How many cells?
 
 How many cells did we analyze? Each cell analyzed is represented by a single ROI. Let's count the number of ROIs.
@@ -2254,8 +2273,6 @@ summary(carbon.lm)
 # Type II ANOVA - Anova(type = 2)
 carbon.aov <- car::Anova(carbon.lm, type = 2)
 carbon.aov
-
-
 ```
 
 `ANOVA (Type II) F-statistic: 417.56 on 2 and 6296 DF, p-value < 2.2e-16`.
